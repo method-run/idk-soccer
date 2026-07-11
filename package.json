@@ -1,0 +1,11 @@
+{
+  "name": "grid-soccer",
+  "version": "0.1.0",
+  "description": "Turn-based soccer board game PWA — dice, formation cards, 7x12 grid",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/",
+    "start": "python3 -m http.server 8321"
+  },
+  "private": true
+}

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#173e1f" />
+  <title>Grid Soccer</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <!-- MENU -->
+  <div id="screen-menu" class="screen visible">
+    <div class="menu-inner">
+      <h1>⚽ Grid Soccer</h1>
+      <p class="tagline">A dice &amp; formation board game on a 7×12 pitch</p>
+      <button id="btn-pve" class="menu-btn">vs Computer</button>
+      <button id="btn-pvp" class="menu-btn">2 Players · same device</button>
+      <button id="btn-help" class="menu-btn menu-btn-quiet">How to play</button>
+    </div>
+  </div>
+
+  <!-- MATCH -->
+  <div id="screen-match" class="screen">
+    <header id="topbar">
+      <div class="team-score team-home">
+        <span id="name-home">Reds</span><b id="score-home">0</b>
+      </div>
+      <div id="turninfo">
+        <span id="turn-label">Turn 1/40</span>
+        <span id="turn-team"></span>
+      </div>
+      <div class="team-score team-away">
+        <b id="score-away">0</b><span id="name-away">Blues</span>
+      </div>
+      <button id="btn-quit" title="Back to menu">✕</button>
+    </header>
+
+    <div id="board-wrap">
+      <svg id="board"></svg>
+      <div id="banner"></div>
+    </div>
+
+    <footer id="panel">
+      <div id="mover-chip"></div>
+      <div id="actions">
+        <button id="btn-pass">Pass</button>
+        <button id="btn-shoot">Shoot</button>
+        <button id="btn-steal">Steal</button>
+        <button id="btn-cancel" hidden>Cancel</button>
+        <button id="btn-end" class="primary">End Turn</button>
+      </div>
+      <div id="cards"></div>
+      <div id="log"></div>
+    </footer>
+  </div>
+
+  <!-- GENERIC OVERLAY (dive picks, full time) -->
+  <div id="overlay" class="modal">
+    <div class="modal-box" id="overlay-content"></div>
+  </div>
+
+  <!-- HELP -->
+  <div id="help" class="modal">
+    <div class="modal-box help-box">
+      <h2>How to play</h2>
+      <p><b>Win:</b> most goals after 40 turns (20 each).</p>
+      <h3>Your turn</h3>
+      <ol>
+        <li><b>Formation (optional, once/turn):</b> tap a card. At the end of
+        your turn every uncontrolled teammate drifts 1 square toward its slot
+        (diamond markers). Slots slide sideways toward the ball.</li>
+        <li><b>Your mover is forced:</b> the teammate holding the ball, or
+        your closest to it (glowing ring). Move up to SPD squares — only
+        SPD−2 while dribbling.</li>
+        <li><b>One ball action:</b> pass, shoot, or steal.</li>
+      </ol>
+      <h3>Dice (all rolls are 2d6 + stat ≥ target)</h3>
+      <ul>
+        <li><b>Pass</b> (PAS): target 6, +1 per 3 squares of distance. Miss =
+        ball scatters 1–2 squares. Anyone standing where it lands takes it.</li>
+        <li><b>Shoot</b> (SHO): target 8, +1 per 2 squares beyond 2, +1 for
+        corner columns. Rolling doubles on an accurate shot = unstoppable.
+        Otherwise the keeper secretly dives at one of the 6 goal cells:
+        exact cell = save, right column = save on 2d6+CTL ≥ 8, wrong way =
+        goal. Miss by 1 = loose rebound.</li>
+        <li><b>Loose ball:</b> land on it. Free if no opponent is adjacent;
+        otherwise opposed 2d6+CTL (tie = you).</li>
+        <li><b>Steal</b> (CTL): stand adjacent to the carrier, roll 2d6+CTL
+        ≥ 8 + their CTL.</li>
+      </ul>
+      <p class="help-paper">🎲 <i>Plays on paper too: a 7×12 grid, 14 coins,
+      2 six-sided dice, and the numbers above.</i></p>
+      <button id="help-close" class="primary">Close</button>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
