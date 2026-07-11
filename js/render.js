@@ -1,6 +1,10 @@
 // SVG board renderer. Builds the static pitch once, then updates piece
 // transforms + highlight layers on every render(). CSS transitions on the
 // piece groups give us free movement animation.
+//
+// The engine's board is 7 wide (x) by 12 deep (y); we render it LANDSCAPE:
+// depth runs along the screen's horizontal axis. Home defends the left
+// goal and attacks the right (engine y=0 maps to the right edge).
 
 import { W, H, TEAM_META } from './data.js';
 import { formationTargets, activePlayerId, PASS_MAX, cheb, shotTN, passTN } from './game.js';
@@ -8,15 +12,21 @@ import { formationTargets, activePlayerId, PASS_MAX, cheb, shotTN, passTN } from
 const NS = 'http://www.w3.org/2000/svg';
 export const T = 48; // tile px
 const PAD = 12;
-const GR = 38; // goal cell row height
-const GD = GR * 2; // goal depth
-const VW = PAD * 2 + W * T;
-const VH = PAD * 2 + GD * 2 + H * T;
+const GR = 38; // goal cell depth (per row)
+const GD = GR * 2; // total goal depth
+const VW = PAD * 2 + GD * 2 + H * T;
+const VH = PAD * 2 + W * T;
 
-const fx = (x) => PAD + x * T;
-const fy = (y) => PAD + GD + y * T;
-const cx = (x) => fx(x) + T / 2;
-const cy = (y) => fy(y) + T / 2;
+// Tile (x,y) -> screen top-left corner.
+const tx = (y) => PAD + GD + (H - 1 - y) * T;
+const ty = (x) => PAD + x * T;
+const cx = (x, y) => tx(y) + T / 2;
+const cy = (x) => ty(x) + T / 2;
+// Field edges in screen coords.
+const FX0 = PAD + GD;
+const FX1 = PAD + GD + H * T;
+const FY0 = PAD;
+const FY1 = PAD + W * T;
 
 function el(tag, attrs = {}, parent = null) {
   const e = document.createElementNS(NS, tag);
@@ -35,7 +45,7 @@ export function initBoard(svg, state, handlers) {
   const ctx = {
     svg,
     handlers,
-    goalCellEls: { home: [], away: [] }, // keyed by defending... see below
+    goalCellEls: {},
     gTargets: null,
     gHighlights: null,
     gPlayers: null,
@@ -43,9 +53,9 @@ export function initBoard(svg, state, handlers) {
     ballEl: null,
   };
 
-  // Goals: top goal is attacked by HOME, bottom by AWAY.
-  ctx.goalCellEls.top = drawGoal(svg, ctx, 'top');
-  ctx.goalCellEls.bottom = drawGoal(svg, ctx, 'bottom');
+  // Right goal is attacked by HOME (engine y=0 end), left by AWAY.
+  ctx.goalCellEls.right = drawGoal(svg, ctx, 'right');
+  ctx.goalCellEls.left = drawGoal(svg, ctx, 'left');
 
   ctx.gTargets = el('g', { class: 'layer-targets' }, svg);
   ctx.gHighlights = el('g', { class: 'layer-highlights' }, svg);
@@ -70,14 +80,14 @@ export function initBoard(svg, state, handlers) {
   el('circle', { r: 3, cx: 0, cy: 0, class: 'ball-inner' }, ball);
   ctx.ballEl = ball;
 
-  // Tile click-catcher (under pieces visually but pieces stopPropagation)
+  // Tile click-catcher (pieces stopPropagation)
   svg.addEventListener('click', (ev) => {
     const pt = svg.createSVGPoint();
     pt.x = ev.clientX;
     pt.y = ev.clientY;
     const p = pt.matrixTransform(svg.getScreenCTM().inverse());
-    const x = Math.floor((p.x - PAD) / T);
-    const y = Math.floor((p.y - PAD - GD) / T);
+    const x = Math.floor((p.y - FY0) / T);
+    const y = H - 1 - Math.floor((p.x - FX0) / T);
     if (x >= 0 && x < W && y >= 0 && y < H) handlers.onTileClick?.(x, y);
   });
 
@@ -86,55 +96,55 @@ export function initBoard(svg, state, handlers) {
 
 function drawPitch(g) {
   el('rect', { x: 0, y: 0, width: VW, height: VH, class: 'grass-bg' }, g);
-  // striped mowing pattern
+  // striped mowing pattern (one stripe per depth row)
   for (let y = 0; y < H; y++) {
     el('rect', {
-      x: fx(0), y: fy(y), width: W * T, height: T,
+      x: tx(y), y: FY0, width: T, height: W * T,
       class: y % 2 ? 'stripe-a' : 'stripe-b',
     }, g);
   }
   // grid
-  for (let x = 0; x <= W; x++) {
-    el('line', { x1: fx(x), y1: fy(0), x2: fx(x), y2: fy(H), class: 'grid' }, g);
+  for (let i = 0; i <= H; i++) {
+    el('line', { x1: FX0 + i * T, y1: FY0, x2: FX0 + i * T, y2: FY1, class: 'grid' }, g);
   }
-  for (let y = 0; y <= H; y++) {
-    el('line', { x1: fx(0), y1: fy(y), x2: fx(W), y2: fy(y), class: 'grid' }, g);
+  for (let j = 0; j <= W; j++) {
+    el('line', { x1: FX0, y1: FY0 + j * T, x2: FX1, y2: FY0 + j * T, class: 'grid' }, g);
   }
   // pitch markings
-  el('rect', { x: fx(0), y: fy(0), width: W * T, height: H * T, class: 'chalk', fill: 'none' }, g);
-  el('line', { x1: fx(0), y1: fy(6), x2: fx(W), y2: fy(6), class: 'chalk' }, g);
-  el('circle', { cx: cx(3), cy: fy(6), r: T * 1.15, class: 'chalk', fill: 'none' }, g);
-  // penalty boxes (5 wide x 2 deep)
-  el('rect', { x: fx(1), y: fy(0), width: 5 * T, height: 2 * T, class: 'chalk', fill: 'none' }, g);
-  el('rect', { x: fx(1), y: fy(H - 2), width: 5 * T, height: 2 * T, class: 'chalk', fill: 'none' }, g);
+  el('rect', { x: FX0, y: FY0, width: H * T, height: W * T, class: 'chalk', fill: 'none' }, g);
+  el('line', { x1: FX0 + 6 * T, y1: FY0, x2: FX0 + 6 * T, y2: FY1, class: 'chalk' }, g);
+  el('circle', { cx: FX0 + 6 * T, cy: FY0 + (W * T) / 2, r: T * 1.15, class: 'chalk', fill: 'none' }, g);
+  // penalty boxes (5 wide x 2 deep, at each end)
+  el('rect', { x: FX0, y: ty(1), width: 2 * T, height: 5 * T, class: 'chalk', fill: 'none' }, g);
+  el('rect', { x: FX1 - 2 * T, y: ty(1), width: 2 * T, height: 5 * T, class: 'chalk', fill: 'none' }, g);
 }
 
-// A goal is a 3-wide x 2-deep box off the field edge, split into 6 aim cells.
-// {col: 0..2 (screen left->right), high: true = deep row (away from field)}.
+// A goal is a 3-wide x 2-deep box off the field's short edge, split into 6
+// aim cells: {col: 0..2 (screen top->bottom), high: true = deep row (away
+// from the field)}.
 function drawGoal(svg, ctx, side) {
   const g = el('g', { class: `goal goal-${side}` }, svg);
-  const gx = fx(2);
-  const gy = side === 'top' ? PAD : fy(H);
-  el('rect', { x: gx, y: gy, width: 3 * T, height: GD, class: 'goal-box' }, g);
+  const gy = ty(2); // goal mouth spans board columns x=2..4
+  const gx = side === 'right' ? FX1 : PAD;
+  el('rect', { x: gx, y: gy, width: GD, height: 3 * T, class: 'goal-box' }, g);
   // net texture
   for (let i = 1; i < 12; i++) {
-    el('line', { x1: gx + (i * 3 * T) / 12, y1: gy, x2: gx + (i * 3 * T) / 12, y2: gy + GD, class: 'net' }, g);
+    el('line', { x1: gx, y1: gy + (i * 3 * T) / 12, x2: gx + GD, y2: gy + (i * 3 * T) / 12, class: 'net' }, g);
   }
   for (let i = 1; i < 4; i++) {
-    el('line', { x1: gx, y1: gy + (i * GD) / 4, x2: gx + 3 * T, y2: gy + (i * GD) / 4, class: 'net' }, g);
+    el('line', { x1: gx + (i * GD) / 4, y1: gy, x2: gx + (i * GD) / 4, y2: gy + 3 * T, class: 'net' }, g);
   }
   const cells = [];
   for (const high of [false, true]) {
     for (let col = 0; col < 3; col++) {
-      // For the top goal, "high" is the row farther from the field (screen top).
-      const rowTop =
-        side === 'top' ? (high ? gy : gy + GR) : high ? gy + GR : gy;
+      // "high" is the row farther from the field.
+      const cellX = side === 'right' ? (high ? gx + GR : gx) : high ? gx : gx + GR;
       const cell = el('g', { class: 'goal-cell' }, g);
       el('rect', {
-        x: gx + col * T, y: rowTop, width: T, height: GR, class: 'goal-cell-rect',
+        x: cellX, y: gy + col * T, width: GR, height: T, class: 'goal-cell-rect',
       }, cell);
       const label = el('text', {
-        x: gx + col * T + T / 2, y: rowTop + GR / 2 + 4, class: 'goal-cell-tn',
+        x: cellX + GR / 2, y: gy + col * T + T / 2 + 5, class: 'goal-cell-tn',
       }, cell);
       cell.addEventListener('click', (ev) => {
         ev.stopPropagation();
@@ -152,7 +162,7 @@ export function render(ctx, state, ui) {
   // pieces
   for (const p of state.players) {
     const g = ctx.playerEls.get(p.id);
-    g.setAttribute('transform', `translate(${cx(p.x)},${cy(p.y)})`);
+    g.setAttribute('transform', `translate(${cx(p.x, p.y)},${cy(p.x)})`);
     g.classList.toggle('is-active', ui.activeId === p.id && !ui.aiTurn);
     g.classList.toggle('is-ai-active', ui.activeId === p.id && !!ui.aiTurn);
   }
@@ -160,10 +170,13 @@ export function render(ctx, state, ui) {
   if (state.ball.carrier) {
     ctx.ballEl.setAttribute(
       'transform',
-      `translate(${cx(state.ball.x) + 13},${cy(state.ball.y) + 13})`
+      `translate(${cx(state.ball.x, state.ball.y) + 13},${cy(state.ball.x) + 13})`
     );
   } else {
-    ctx.ballEl.setAttribute('transform', `translate(${cx(state.ball.x)},${cy(state.ball.y)})`);
+    ctx.ballEl.setAttribute(
+      'transform',
+      `translate(${cx(state.ball.x, state.ball.y)},${cy(state.ball.x)})`
+    );
   }
 
   // formation target ghosts for the human's team
@@ -172,7 +185,7 @@ export function render(ctx, state, ui) {
     const targets = formationTargets(state, ui.showTargetsFor);
     for (const [pid, t] of Object.entries(targets)) {
       const d = el('path', {
-        d: `M ${cx(t.x)} ${cy(t.y) - 7} l 7 7 l -7 7 l -7 -7 Z`,
+        d: `M ${cx(t.x, t.y)} ${cy(t.x) - 7} l 7 7 l -7 7 l -7 -7 Z`,
         class: `target-ghost team-${ui.showTargetsFor}`,
       }, ctx.gTargets);
       d.dataset.pid = pid;
@@ -183,11 +196,11 @@ export function render(ctx, state, ui) {
   ctx.gHighlights.innerHTML = '';
   for (const h of ui.highlights || []) {
     const r = el('rect', {
-      x: fx(h.x) + 3, y: fy(h.y) + 3, width: T - 6, height: T - 6, rx: 8,
+      x: tx(h.y) + 3, y: ty(h.x) + 3, width: T - 6, height: T - 6, rx: 8,
       class: `hl hl-${h.kind}`,
     }, ctx.gHighlights);
     if (h.label != null) {
-      el('text', { x: fx(h.x) + T - 8, y: fy(h.y) + 14, class: 'hl-tn' }, ctx.gHighlights)
+      el('text', { x: tx(h.y) + T - 8, y: ty(h.x) + 14, class: 'hl-tn' }, ctx.gHighlights)
         .textContent = h.label;
     }
     r.addEventListener('click', (ev) => {
@@ -197,7 +210,7 @@ export function render(ctx, state, ui) {
   }
 
   // goal aim cells
-  for (const side of ['top', 'bottom']) {
+  for (const side of ['left', 'right']) {
     const aiming = ui.aimGoal === side;
     for (const c of ctx.goalCellEls[side]) {
       c.el.classList.toggle('aimable', aiming);
@@ -208,5 +221,5 @@ export function render(ctx, state, ui) {
 
 // Which goal (screen side) a team attacks.
 export function goalSideFor(team) {
-  return team === 'home' ? 'top' : 'bottom';
+  return team === 'home' ? 'right' : 'left';
 }
