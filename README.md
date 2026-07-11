@@ -1,6 +1,6 @@
 # ⚽ Grid Soccer
 
-A turn-based soccer board game as a standalone PWA: 7×12 pitch, formation
+A turn-based soccer board game as a standalone PWA: 9×18 pitch, formation
 cards, RPG-style stats, and 2d6 dice for every contested moment. Plays
 offline, installs to a home screen, and converts to pencil & paper.
 
@@ -45,6 +45,6 @@ Full rules: the in-game **How to play** screen.
 
 ## Paper conversion
 
-7×12 grid, 14 coins (write SPD/SHO/PAS/CTL on stickers), a ball token,
+9×18 grid, 14 coins (write SPD/SHO/PAS/CTL on stickers), a ball token,
 2 six-sided dice. Target numbers are in the How-to-play screen. Random
 scatter direction: roll a d8 or spin a pencil.

@@ -1,7 +1,7 @@
 // App controller: screens, human interaction state machine, AI turn driver.
 
 import { makeDice } from './dice.js';
-import { FORMATIONS, TEAM_META } from './data.js';
+import { W, H, FORMATIONS, TEAM_META } from './data.js';
 import {
   newMatch, activePlayerId, getPlayer, carrier, reachable, moveRange,
   doMove, doPass, doSteal, doShoot, canSteal, canShoot, canPass,
@@ -64,6 +64,7 @@ function startMatch(mode) {
     onPlayerClick: handlePlayerClick,
   });
   $('log').innerHTML = '';
+  $('dice-tray').innerHTML = '';
   $('name-home').textContent = TEAM_META.home.name;
   $('name-away').textContent = TEAM_META.away.name;
   show('screen-match');
@@ -106,8 +107,8 @@ function renderAll() {
   }
   if (ui.phase === 'aim-pass') {
     const c = carrier(state);
-    for (let x = 0; x < 7; x++) {
-      for (let y = 0; y < 12; y++) {
+    for (let x = 0; x < W; x++) {
+      for (let y = 0; y < H; y++) {
         const d = cheb(c.x, c.y, x, y);
         if (d >= 1 && d <= PASS_MAX) {
           highlights.push({ x, y, kind: 'pass', label: passTN(d) });
@@ -187,19 +188,41 @@ function renderButtons() {
   }
 }
 
+// Mini pitch drawing for a formation card, oriented the way `team` plays
+// on screen (home attacks right, away attacks left).
+function cardPitchSVG(f, team) {
+  const pw = 62;
+  const ph = 32;
+  const dots = [[...f.gk, true], ...f.slots.map((s) => [...s, false])]
+    .map(([sx, sy, gk]) => {
+      const dy = team === 'home' ? sy : H - 1 - sy;
+      const px = 3 + ((H - 1 - dy + 0.5) / H) * (pw - 6);
+      const py = 3 + ((sx + 0.5) / W) * (ph - 6);
+      return `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="${gk ? 2.6 : 2.1}"
+        class="${gk ? 'mini-gk' : 'mini-dot'}"/>`;
+    })
+    .join('');
+  return `<svg class="mini-pitch" viewBox="0 0 ${pw} ${ph}" aria-hidden="true">
+    <rect x="1" y="1" width="${pw - 2}" height="${ph - 2}" rx="3" class="mini-field"/>
+    <line x1="${pw / 2}" y1="1" x2="${pw / 2}" y2="${ph - 1}" class="mini-line"/>
+    ${dots}</svg>`;
+}
+
 function renderCards() {
   const wrap = $('cards');
   wrap.innerHTML = '';
-  const team = state.activeTeam;
+  // In PvE always show the human's cards; in hotseat, the active team's.
+  const team = ui.mode === 'pve' ? 'home' : state.activeTeam;
+  const myTurn = isHumanTurn() && team === state.activeTeam;
   for (const f of FORMATIONS) {
     const b = document.createElement('button');
-    b.className = 'card';
+    b.className = `card card-${team}`;
     const active = state.formations[team] === f.id;
     if (active) b.classList.add('card-active');
     b.disabled =
-      !isHumanTurn() || state.over || ui.phase !== 'idle' ||
+      !myTurn || state.over || ui.phase !== 'idle' ||
       (state.formationSwitched && !active) || active;
-    b.innerHTML = `<b>${f.short}</b><span>${f.name.replace(/^[\d-]+ /, '')}</span>`;
+    b.innerHTML = `${cardPitchSVG(f, team)}<b>${f.short}</b><span>${f.name.replace(/^[\d-]+ /, '')}</span>`;
     b.addEventListener('click', () => {
       if (setFormation(state, f.id).ok) renderAll();
     });
@@ -208,6 +231,50 @@ function renderCards() {
 }
 
 const DIE = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+
+// ---------------------------------------------------------------------------
+// Dice tray: big readable "what I rolled vs what I needed" for every roll,
+// both teams. Fed from engine events as they stream into the log.
+
+const PIPS = {
+  1: [[50, 50]],
+  2: [[28, 28], [72, 72]],
+  3: [[28, 28], [50, 50], [72, 72]],
+  4: [[28, 28], [72, 28], [28, 72], [72, 72]],
+  5: [[28, 28], [72, 28], [50, 50], [28, 72], [72, 72]],
+  6: [[28, 25], [28, 50], [28, 75], [72, 25], [72, 50], [72, 75]],
+};
+
+function dieFace(v) {
+  const pips = PIPS[v]
+    .map(([x, y]) => `<span class="pip" style="left:${x}%;top:${y}%"></span>`)
+    .join('');
+  return `<span class="die">${pips}</span>`;
+}
+
+const ROLL_LABELS = {
+  pass: 'Pass',
+  shot: 'Shot',
+  steal: 'Tackle',
+  contest: 'Loose ball',
+  save: 'Keeper',
+  goal: 'Keeper',
+};
+
+function trayAdd(e) {
+  const tray = $('dice-tray');
+  const r = e.roll;
+  const div = document.createElement('div');
+  div.className = `tray-roll team-${e.team}`;
+  const mod = r.mod >= 0 ? `+${r.mod}` : `${r.mod}`;
+  div.innerHTML = `
+    <span class="tray-label">${ROLL_LABELS[e.type] || e.type}</span>
+    ${dieFace(r.a)}${dieFace(r.b)}
+    <span class="tray-math">${mod} = <b>${r.total}</b> vs ${r.tn}</span>
+    <span class="tray-result ${r.success ? 'ok' : 'no'}">${r.success ? '✓' : '✗'}</span>`;
+  tray.prepend(div);
+  while (tray.children.length > 3) tray.lastChild.remove();
+}
 
 function renderLog() {
   const log = $('log');
@@ -224,6 +291,7 @@ function renderLog() {
     }
     div.innerHTML = `<span class="log-turn">T${e.turn}</span> ${e.text}${roll}`;
     log.appendChild(div);
+    if (e.roll) trayAdd(e);
   }
   log.scrollTop = log.scrollHeight;
 }
@@ -305,13 +373,15 @@ function pvpDivePick(shooterTeam) {
   });
 }
 
+// Laid out like the on-screen goal: 3 rows (top/center/bottom posts) by
+// 2 columns (low = near the mouth, high = top shelf).
 function buildDiveGrid(grid, onPick) {
-  const names = ['Left', 'Center', 'Right'];
-  for (const high of [true, false]) {
-    for (let col = 0; col < 3; col++) {
+  const names = ['Top', 'Center', 'Bottom'];
+  for (let col = 0; col < 3; col++) {
+    for (const high of [false, true]) {
       const b = document.createElement('button');
       b.className = 'dive-cell';
-      b.textContent = `${high ? 'High' : 'Low'} ${names[col]}`;
+      b.textContent = `${names[col]} · ${high ? 'High' : 'Low'}`;
       b.addEventListener('click', () => onPick({ col, high }));
       grid.appendChild(b);
     }

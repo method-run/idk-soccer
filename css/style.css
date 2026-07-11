@@ -167,6 +167,45 @@ button.primary { background: var(--accent); color: #201700; border-color: var(--
 .card-active { border-color: var(--accent); background: #2b2413; }
 .card-active span { color: var(--accent); }
 
+.mini-pitch { width: 100%; max-width: 78px; }
+.mini-field { fill: #1c4a26; stroke: rgba(255, 255, 255, 0.45); stroke-width: 1; }
+.mini-line { stroke: rgba(255, 255, 255, 0.35); stroke-width: 1; }
+.card-home .mini-dot { fill: var(--home); }
+.card-away .mini-dot { fill: var(--away); }
+.mini-gk { fill: var(--accent); }
+
+/* ---------------- Dice tray ---------------- */
+#dice-tray {
+  position: absolute; top: 8px; left: 8px; z-index: 4;
+  display: flex; flex-direction: column; gap: 6px; pointer-events: none;
+}
+.tray-roll {
+  display: flex; align-items: center; gap: 7px;
+  background: rgba(8, 16, 10, 0.88); border-radius: 10px; padding: 6px 10px;
+  border-left: 4px solid transparent; font-size: 0.85rem;
+  animation: tray-in 0.25s ease;
+}
+.tray-roll.team-home { border-left-color: var(--home); }
+.tray-roll.team-away { border-left-color: var(--away); }
+.tray-roll:nth-child(2) { opacity: 0.6; transform: scale(0.92); transform-origin: top left; }
+.tray-roll:nth-child(3) { opacity: 0.35; transform: scale(0.85); transform-origin: top left; }
+@keyframes tray-in { from { opacity: 0; transform: translateY(-6px); } }
+.tray-label { font-weight: 700; min-width: 62px; }
+.tray-math { color: var(--muted); }
+.tray-math b { color: var(--text); font-size: 1rem; }
+.tray-result { font-weight: 900; font-size: 1rem; }
+.tray-result.ok { color: #7fe09a; }
+.tray-result.no { color: #e08a7f; }
+
+.die {
+  position: relative; display: inline-block; width: 24px; height: 24px;
+  background: #f5f2ea; border-radius: 5px; box-shadow: inset 0 -2px 0 rgba(0,0,0,0.2);
+}
+.pip {
+  position: absolute; width: 5px; height: 5px; border-radius: 50%;
+  background: #222; transform: translate(-50%, -50%);
+}
+
 #log {
   height: 74px; overflow-y: auto; font-size: 0.75rem; line-height: 1.45;
   background: var(--bg); border-radius: 8px; padding: 6px 8px; color: var(--muted);
@@ -194,7 +233,7 @@ button.primary { background: var(--accent); color: #201700; border-color: var(--
 .modal-box p { margin-bottom: 12px; color: var(--muted); }
 .final-score { font-size: 1.5rem; font-weight: 800; color: var(--text) !important; }
 
-.dive-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.dive-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
 .dive-cell { padding: 18px 6px; font-weight: 700; background: #10240f; border-color: #fff3; }
 .dive-cell:active { background: var(--accent); color: #201700; }
 

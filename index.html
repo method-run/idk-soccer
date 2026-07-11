@@ -15,7 +15,7 @@
   <div id="screen-menu" class="screen visible">
     <div class="menu-inner">
       <h1>⚽ Grid Soccer</h1>
-      <p class="tagline">A dice &amp; formation board game on a 7×12 pitch</p>
+      <p class="tagline">A dice &amp; formation board game on a 9×18 pitch</p>
       <button id="btn-pve" class="menu-btn">vs Computer</button>
       <button id="btn-pvp" class="menu-btn">2 Players · same device</button>
       <button id="btn-help" class="menu-btn menu-btn-quiet">How to play</button>
@@ -40,6 +40,7 @@
 
     <div id="board-wrap">
       <svg id="board"></svg>
+      <div id="dice-tray"></div>
       <div id="banner"></div>
     </div>
 
@@ -66,7 +67,7 @@
   <div id="help" class="modal">
     <div class="modal-box help-box">
       <h2>How to play</h2>
-      <p><b>Win:</b> most goals after 40 turns (20 each).</p>
+      <p><b>Win:</b> most goals after 50 turns (25 each).</p>
       <h3>Your turn</h3>
       <ol>
         <li><b>Formation (optional, once/turn):</b> tap a card. At the end of
@@ -91,7 +92,7 @@
         <li><b>Steal</b> (CTL): stand adjacent to the carrier, roll 2d6+CTL
         ≥ 8 + their CTL.</li>
       </ul>
-      <p class="help-paper">🎲 <i>Plays on paper too: a 7×12 grid, 14 coins,
+      <p class="help-paper">🎲 <i>Plays on paper too: a 9×18 grid, 14 coins,
       2 six-sided dice, and the numbers above.</i></p>
       <button id="help-close" class="primary">Close</button>
     </div>

@@ -3,6 +3,7 @@
 //   aiChooseFormation -> aiChooseMove -> aiChooseAction
 // plus aiPickDive when defending a shot.
 
+import { W, H } from './data.js';
 import {
   activePlayerId, getPlayer, carrier, reachable, cheb, attackMouth,
   canSteal, canShoot, canPass, shotDistance, shotTN, passTN, stealTN,
@@ -22,8 +23,9 @@ export function p2d6(mod, tn) {
 export function aiChooseFormation(state) {
   const team = state.activeTeam;
   const c = carrier(state);
+  const mid = Math.floor(H / 2);
   const ballInMyHalf =
-    team === 'home' ? state.ball.y >= 6 : state.ball.y <= 5;
+    team === 'home' ? state.ball.y >= mid : state.ball.y < mid;
   let want;
   if (c && c.team === team) want = ballInMyHalf ? 'press' : 'attack';
   else if (c) want = ballInMyHalf ? 'bus' : 'balanced';
@@ -117,8 +119,8 @@ export function aiChooseAction(state, dice) {
     (p) => p.team !== me.team && cheb(p.x, p.y, me.x, me.y) <= 1
   ).length;
   if (pressure >= 2) {
-    const ty = me.team === 'home' ? Math.max(0, me.y - 5) : Math.min(11, me.y + 5);
-    const tx = Math.max(0, Math.min(6, me.x + dice.pick([-1, 0, 1])));
+    const ty = me.team === 'home' ? Math.max(0, me.y - 5) : Math.min(H - 1, me.y + 5);
+    const tx = Math.max(0, Math.min(W - 1, me.x + dice.pick([-1, 0, 1])));
     if (!(tx === me.x && ty === me.y)) return { type: 'pass', x: tx, y: ty };
   }
   return { type: 'none' };

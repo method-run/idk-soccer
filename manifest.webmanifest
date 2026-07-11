@@ -1,7 +1,7 @@
 {
   "name": "Grid Soccer",
   "short_name": "GridSoccer",
-  "description": "Turn-based soccer board game: dice, formation cards, 7x12 pitch",
+  "description": "Turn-based soccer board game: dice, formation cards, 9x18 pitch",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

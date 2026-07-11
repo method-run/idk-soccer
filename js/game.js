@@ -1,7 +1,7 @@
 // Pure game engine. No DOM. All randomness comes through an injected dice
 // object (see dice.js) so the engine is testable and replayable.
 
-import { W, H, MAX_TURNS, ROSTER, FORMATIONS, mirrorY } from './data.js';
+import { W, H, MAX_TURNS, ROSTER, FORMATIONS, GOAL_COLS, CENTER_X, mirrorY } from './data.js';
 
 export const DIRS8 = [
   [-1, -1], [0, -1], [1, -1],
@@ -23,7 +23,7 @@ export function otherTeam(team) {
 
 // The goal-mouth tile a team shoots AT (edge-center of the opponent's end).
 export function attackMouth(team) {
-  return team === 'home' ? { x: 3, y: 0 } : { x: 3, y: H - 1 };
+  return team === 'home' ? { x: CENTER_X, y: 0 } : { x: CENTER_X, y: H - 1 };
 }
 
 export function getFormation(id) {
@@ -58,7 +58,7 @@ export function newMatch({ mode = 'pve', maxTurns = MAX_TURNS } = {}) {
     maxTurns,
     activeTeam: 'home',
     score: { home: 0, away: 0 },
-    ball: { x: 3, y: 6, carrier: null },
+    ball: { x: CENTER_X, y: Math.floor(H / 2), carrier: null },
     players,
     formations: { home: 'balanced', away: 'balanced' },
     moved: false,
@@ -113,13 +113,13 @@ export function activePlayerId(state) {
 
 export function formationTargets(state, team) {
   const card = getFormation(state.formations[team]);
-  const shift = Math.max(-1, Math.min(1, state.ball.x - 3));
+  const shift = Math.max(-1, Math.min(1, state.ball.x - CENTER_X));
   const my = (y) => (team === 'home' ? y : mirrorY(y));
   const targets = {};
   const roster = state.players.filter((p) => p.team === team);
   const gk = roster.find((p) => p.role === 'GK');
   targets[gk.id] = {
-    x: Math.max(2, Math.min(4, card.gk[0] + shift)),
+    x: Math.max(GOAL_COLS[0], Math.min(GOAL_COLS[GOAL_COLS.length - 1], card.gk[0] + shift)),
     y: my(card.gk[1]),
   };
   const outfield = roster.filter((p) => p.role !== 'GK');
@@ -292,7 +292,7 @@ export function doSteal(state, dice) {
 // ---------------------------------------------------------------------------
 // Passing
 
-export const PASS_MAX = 8;
+export const PASS_MAX = 10;
 
 export function passTN(dist) {
   return 6 + Math.floor(dist / 3);
@@ -433,11 +433,11 @@ export function doShoot(state, dice, aim, dive) {
     // rebound: loose ball in front of the goal
     const gy = shooter.team === 'home' ? dice.pick([0, 1]) : dice.pick([H - 1, H - 2]);
     const options = [];
-    for (let gx = 1; gx <= 5; gx++) {
+    for (let gx = GOAL_COLS[0] - 1; gx <= GOAL_COLS[GOAL_COLS.length - 1] + 1; gx++) {
       if (!occupantAt(state, gx, gy)) options.push(gx);
     }
     state.ball.carrier = null;
-    state.ball.x = options.length ? dice.pick(options) : 3;
+    state.ball.x = options.length ? dice.pick(options) : CENTER_X;
     state.ball.y = gy;
     logEvent(state, 'rebound', 'Rattles the frame — rebound is LOOSE in front of goal!');
     endTurn(state, dice, {});
@@ -467,9 +467,10 @@ function placeAt(state, player, x, y) {
 }
 
 export function kickoff(state, teamWithBall) {
+  const mid = Math.floor(H / 2);
   state.ball.carrier = null;
-  state.ball.x = 3;
-  state.ball.y = teamWithBall === 'home' ? 6 : 5;
+  state.ball.x = CENTER_X;
+  state.ball.y = teamWithBall === 'home' ? mid : mid - 1;
   // Clear the board, then snap everyone to their formation targets.
   for (const p of state.players) {
     p.x = -99;
@@ -487,7 +488,9 @@ export function kickoff(state, teamWithBall) {
   if (squatter) {
     squatter.x = -99;
     squatter.y = -99;
-    placeAt(state, squatter, state.ball.x, state.ball.y === 6 ? 7 : 4);
+    // Nudge the squatter away from the center line, toward whichever half
+    // the kicking team does NOT occupy the ball tile in.
+    placeAt(state, squatter, state.ball.x, state.ball.y === mid ? mid + 1 : mid - 2);
   }
   // The kicking team's closest player steps onto the ball.
   let best = null;

@@ -106,7 +106,7 @@ function clearBoard(s) {
   });
   s.players.filter((p) => p.team === 'home').forEach((p, i) => {
     p.x = i;
-    p.y = 11;
+    p.y = H - 1;
   });
 }
 

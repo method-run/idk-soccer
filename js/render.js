@@ -6,7 +6,7 @@
 // depth runs along the screen's horizontal axis. Home defends the left
 // goal and attacks the right (engine y=0 maps to the right edge).
 
-import { W, H, TEAM_META } from './data.js';
+import { W, H, GOAL_COLS, TEAM_META } from './data.js';
 import { formationTargets, activePlayerId, PASS_MAX, cheb, shotTN, passTN } from './game.js';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -111,12 +111,15 @@ function drawPitch(g) {
     el('line', { x1: FX0, y1: FY0 + j * T, x2: FX1, y2: FY0 + j * T, class: 'grid' }, g);
   }
   // pitch markings
+  const MID = FX0 + (H / 2) * T;
   el('rect', { x: FX0, y: FY0, width: H * T, height: W * T, class: 'chalk', fill: 'none' }, g);
-  el('line', { x1: FX0 + 6 * T, y1: FY0, x2: FX0 + 6 * T, y2: FY1, class: 'chalk' }, g);
-  el('circle', { cx: FX0 + 6 * T, cy: FY0 + (W * T) / 2, r: T * 1.15, class: 'chalk', fill: 'none' }, g);
-  // penalty boxes (5 wide x 2 deep, at each end)
-  el('rect', { x: FX0, y: ty(1), width: 2 * T, height: 5 * T, class: 'chalk', fill: 'none' }, g);
-  el('rect', { x: FX1 - 2 * T, y: ty(1), width: 2 * T, height: 5 * T, class: 'chalk', fill: 'none' }, g);
+  el('line', { x1: MID, y1: FY0, x2: MID, y2: FY1, class: 'chalk' }, g);
+  el('circle', { cx: MID, cy: FY0 + (W * T) / 2, r: T * 1.15, class: 'chalk', fill: 'none' }, g);
+  // penalty boxes (goal width +2 wide, 3 deep, at each end)
+  const boxY = ty(GOAL_COLS[0] - 1);
+  const boxH = (GOAL_COLS.length + 2) * T;
+  el('rect', { x: FX0, y: boxY, width: 3 * T, height: boxH, class: 'chalk', fill: 'none' }, g);
+  el('rect', { x: FX1 - 3 * T, y: boxY, width: 3 * T, height: boxH, class: 'chalk', fill: 'none' }, g);
 }
 
 // A goal is a 3-wide x 2-deep box off the field's short edge, split into 6
@@ -124,7 +127,7 @@ function drawPitch(g) {
 // from the field)}.
 function drawGoal(svg, ctx, side) {
   const g = el('g', { class: `goal goal-${side}` }, svg);
-  const gy = ty(2); // goal mouth spans board columns x=2..4
+  const gy = ty(GOAL_COLS[0]); // goal mouth spans the central goal columns
   const gx = side === 'right' ? FX1 : PAD;
   el('rect', { x: gx, y: gy, width: GD, height: 3 * T, class: 'goal-box' }, g);
   // net texture
