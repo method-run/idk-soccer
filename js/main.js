@@ -12,7 +12,7 @@ import { aiChooseFormation, aiChooseMove, aiChooseAction, aiPickDive, p2d6 } fro
 import { initBoard, render, goalSideFor } from './render.js';
 
 const $ = (id) => document.getElementById(id);
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms / ui.speed));
 
 let state = null;
 let dice = null;
@@ -22,6 +22,8 @@ const ui = {
   phase: 'idle', // idle | aim-pass | aim-shot | busy
   aiTurn: false,
   seenEvents: 0,
+  speed: 1, // playback multiplier (CvC spectator control)
+  session: 0, // bumped on new match / quit; stale async AI loops check it
 };
 
 // ---------------------------------------------------------------------------
@@ -56,6 +58,10 @@ function startMatch(mode) {
   ui.mode = mode;
   ui.phase = 'idle';
   ui.seenEvents = 0;
+  ui.session++;
+  ui.speed = 1;
+  $('btn-speed').hidden = mode !== 'cvc';
+  $('btn-speed').textContent = '1×';
   dice = makeDice();
   state = newMatch({ mode });
   board = initBoard($('board'), state, {
@@ -72,11 +78,13 @@ function startMatch(mode) {
 }
 
 function isHumanTurn() {
+  if (ui.mode === 'cvc') return false;
   return ui.mode === 'pvp' || state.activeTeam === 'home';
 }
 
 function humanDefends(team) {
   // Is the keeper's dive picked by a human when `team` shoots?
+  if (ui.mode === 'cvc') return false;
   return ui.mode === 'pvp' || team === 'away';
 }
 
@@ -120,7 +128,8 @@ function renderAll() {
     activeId,
     aiTurn: ui.aiTurn,
     highlights,
-    showTargetsFor: !state.over && isHumanTurn() ? state.activeTeam : null,
+    showTargetsFor:
+      !state.over && (isHumanTurn() || ui.mode === 'cvc') ? state.activeTeam : null,
     aimGoal: ui.phase === 'aim-shot' ? goalSideFor(state.activeTeam) : null,
     aimTNs: (cell) => {
       const c = carrier(state);
@@ -348,12 +357,14 @@ async function handleGoalCell(cell, side) {
 }
 
 async function resolveShot(aim, dive) {
+  const mySession = ui.session;
   const res = doShoot(state, dice, aim, dive);
   renderAll();
   if (res.outcome === 'goal') await banner('⚽ GOAL!!!', 'goal', 1800);
   else if (res.outcome === 'save') await banner('🧤 SAVED!', 'save');
   else if (res.outcome === 'rebound') await banner('💥 Off the frame!', 'save');
   else await banner('Off target…', '', 1000);
+  if (ui.session !== mySession) return;
   beginTurn();
 }
 
@@ -434,19 +445,24 @@ $('btn-end').addEventListener('click', () => {
 async function runAiTurn() {
   ui.phase = 'busy';
   ui.aiTurn = true;
+  const mySession = ui.session;
+  const stale = () => ui.session !== mySession;
   const turnBefore = state.turn;
   await sleep(600);
+  if (stale()) return;
   const f = aiChooseFormation(state);
   if (f) {
     setFormation(state, f);
     renderAll();
     await sleep(500);
+    if (stale()) return;
   }
   const mv = aiChooseMove(state, dice);
   if (mv) {
     doMove(state, dice, mv.x, mv.y);
     renderAll();
     await sleep(650);
+    if (stale()) return;
   }
   if (!state.over && !state.actionUsed && state.turn === turnBefore) {
     const act = aiChooseAction(state, dice);
@@ -455,10 +471,12 @@ async function runAiTurn() {
       renderAll();
       flashRoll(res.roll, res.roll.success ? 'Steal!' : 'Held off');
       await sleep(900);
+      if (stale()) return;
     } else if (act.type === 'pass') {
       const res = doPass(state, dice, act.x, act.y);
       renderAll();
       await sleep(700);
+      if (stale()) return;
     } else if (act.type === 'shoot') {
       let dive;
       if (humanDefends(state.activeTeam)) {
@@ -476,10 +494,12 @@ async function runAiTurn() {
       } else {
         dive = aiPickDive(state, dice);
       }
+      if (stale()) return;
       await resolveShot(act.aim, dive);
       return; // resolveShot continues the loop via beginTurn
     }
   }
+  if (stale()) return;
   if (!state.over && state.turn === turnBefore) endTurn(state, dice);
   beginTurn();
 }
@@ -513,13 +533,21 @@ function showFullTime() {
 
 $('btn-pve').addEventListener('click', () => startMatch('pve'));
 $('btn-pvp').addEventListener('click', () => startMatch('pvp'));
+$('btn-cvc').addEventListener('click', () => startMatch('cvc'));
+$('btn-speed').addEventListener('click', () => {
+  ui.speed = ui.speed >= 4 ? 1 : ui.speed * 2;
+  $('btn-speed').textContent = `${ui.speed}×`;
+});
 $('btn-help').addEventListener('click', () => {
   $('help').classList.add('visible');
 });
 $('help-close').addEventListener('click', () => {
   $('help').classList.remove('visible');
 });
-$('btn-quit').addEventListener('click', () => show('screen-menu'));
+$('btn-quit').addEventListener('click', () => {
+  ui.session++; // abort any in-flight AI loop
+  show('screen-menu');
+});
 
 // PWA service worker
 if ('serviceWorker' in navigator) {

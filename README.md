@@ -24,6 +24,8 @@ npm test
 - **vs Computer** — you are the Reds, a heuristic AI plays the Blues.
 - **2 Players** — hotseat on one device; keeper dives use a blind
   hand-the-device-over overlay.
+- **Watch · CPU vs CPU** — spectator mode with a 1×/2×/4× speed toggle;
+  handy for eyeballing balance changes.
 
 ## The rules in one breath
 

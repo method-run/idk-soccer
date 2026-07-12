@@ -1,5 +1,5 @@
 // Cache-first service worker for full offline play.
-const CACHE = 'grid-soccer-v3';
+const CACHE = 'grid-soccer-v4';
 const ASSETS = [
   './',
   './index.html',
