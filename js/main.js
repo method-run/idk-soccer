@@ -474,12 +474,12 @@ async function playRoll(e) {
   };
 
   // pre-roll beat: read the target
-  await beat(850);
+  await beat(450);
   // tumble
-  for (let i = 0; i < 11 && !ui.skipRoll; i++) {
+  for (let i = 0; i < 7 && !ui.skipRoll; i++) {
     setDie(d1, 1 + Math.floor(Math.random() * 6));
     setDie(d2, 1 + Math.floor(Math.random() * 6));
-    await sleep(65 + i * 8);
+    await sleep(50 + i * 8);
   }
   setDie(d1, r.a);
   setDie(d2, r.b);
@@ -489,7 +489,7 @@ async function playRoll(e) {
   resultEl.innerHTML = `${r.a} + ${r.b} ${mod} = <b>${r.total}</b>
     <span class="${r.success ? 'ok' : 'no'}">${r.success ? '✓ SUCCESS' : '✗ FAIL'}</span>`;
   resultEl.classList.add('shown', r.success ? 'ok' : 'no');
-  await beat(1100);
+  await beat(750);
   o.classList.remove('visible');
 }
 
