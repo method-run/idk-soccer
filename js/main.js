@@ -7,7 +7,7 @@ import {
   newMatch, activePlayerId, getPlayer, carrier, reachable, moveRange,
   doMove, doPass, doSteal, doShoot, canSteal, canShoot, canPass,
   setFormation, selectMover, driftPreview, endTurn, cheb,
-  shotDistance, shotTN, passTN, stealTN, PASS_MAX, getFormation,
+  shotDistance, shotTN, passTN, stealTN, PASS_MAX, getFormation, supportMod,
 } from './game.js';
 import { aiChooseFormation, aiChooseMove, aiChooseAction, aiPickDive, p2d6 } from './ai.js';
 import { initBoard, render, goalSideFor } from './render.js';
@@ -70,6 +70,7 @@ function startMatch(mode) {
   ui.paused = false;
   ui.playerView = 1;
   ui.inspectId = null;
+  ui.diveResolve = null;
   hist.undo.length = 0;
   hist.redo.length = 0;
   $('btn-speed').hidden = mode !== 'cvc';
@@ -191,17 +192,20 @@ function renderAll() {
     highlights,
     showTargetsFor:
       !state.over && (isHumanTurn() || ui.mode === 'cvc') ? state.activeTeam : null,
-    aimGoal: ui.phase === 'aim-shot' ? goalSideFor(state.activeTeam) : null,
+    aimGoal:
+      ui.phase === 'aim-shot' || ui.phase === 'pick-dive'
+        ? goalSideFor(state.activeTeam)
+        : null,
     aimTNs: (cell) => {
+      if (ui.phase === 'pick-dive') return ''; // defender can't see the aim
       const c = carrier(state);
       if (!c) return '';
       const tn = shotTN(shotDistance(state, c), cell);
       return `${pct(c.sho, tn)}%`;
     },
-    arrows:
-      human && state.formationSwitched
-        ? driftPreview(state).map((s) => ({ ...s, team: state.activeTeam }))
-        : null,
+    arrows: human
+      ? driftPreview(state).map((s) => ({ ...s, team: state.activeTeam }))
+      : null,
     ring: human && ui.phase === 'idle' && ui.playerView === 1 ? buildRing(selected) : null,
     statsBox:
       ui.inspectId || (human && ui.playerView === 2 && ui.phase === 'idle' ? selected : null),
@@ -229,7 +233,8 @@ function buildRing(selectedId) {
   }
   if (canSteal(state)) {
     const c = carrier(state);
-    items.push({ key: 'steal', label: 'Steal', sub: `${pct(p.ctl, stealTN(c.ctl))}%` });
+    const sup = supportMod(state, c.x, c.y, p.team, [p.id, c.id]);
+    items.push({ key: 'steal', label: 'Steal', sub: `${pct(p.ctl + sup, stealTN(c.ctl))}%` });
   }
   return items.length ? { playerId: selectedId, items } : null;
 }
@@ -301,8 +306,9 @@ function openFormationPicker(team) {
   const current = state.formations[team];
   overlay(`
     <h2 class="team-${team}">${TEAM_META[team].name}: pick a formation</h2>
-    <p>Teammates drift 1 square toward their slots when you end your turn.
-    Arrows on the board will preview the moves. Once per turn.</p>
+    <p>Teammates drift 1 square toward their slots when you end your turn —
+    the arrows on the board preview the moves. Switch as often as you like
+    before ending your turn.</p>
     <div class="formation-grid card-${team}" id="formation-grid"></div>
     <div class="overlay-buttons"><button id="formation-cancel">Cancel</button></div>`);
   const grid = $('formation-grid');
@@ -313,10 +319,8 @@ function openFormationPicker(team) {
       b.classList.add('card-active');
       b.disabled = true;
     }
-    if (state.formationSwitched && f.id !== current) b.disabled = true;
     b.innerHTML = `${cardPitchSVG(f, team)}<b>${f.short}</b><span>${f.name.replace(/^[\d-]+ /, '')}</span>`;
     b.addEventListener('click', () => {
-      pushHistory();
       setFormation(state, f.id);
       hideOverlay();
       renderAll();
@@ -341,6 +345,7 @@ function renderMoverChip(activeId) {
 }
 
 function hint(p, hasBall) {
+  if (ui.phase === 'pick-dive') return 'SHOT INCOMING — tap a goal cell to dive your keeper!';
   if (ui.aiTurn) return 'Computer is thinking…';
   if (ui.phase === 'aim-pass') return 'Tap a square to pass there (odds shown)';
   if (ui.phase === 'aim-shot') return 'Tap a goal cell to aim (accuracy shown)';
@@ -427,6 +432,12 @@ async function diceAction(exec) {
   const mySession = ui.session;
   const result = exec();
   const rollEvents = state.events.slice(before).filter((e) => e.roll);
+  if (rollEvents.length) {
+    // A dice roll is an unchangeable checkpoint: nothing at or before it
+    // can be undone.
+    hist.undo.length = 0;
+    hist.redo.length = 0;
+  }
   for (const e of rollEvents) {
     if (ui.session !== mySession) break;
     await playRoll(e);
@@ -506,10 +517,8 @@ async function handleTileClick(x, y) {
     ui.phase = 'idle';
     renderAll();
   } else if (ui.phase === 'aim-pass') {
-    pushHistory();
     ui.phase = 'busy';
-    const res = await diceAction(() => doPass(state, dice, x, y));
-    if (!res.ok) hist.undo.pop(); // invalid target: nothing happened
+    await diceAction(() => doPass(state, dice, x, y));
     ui.phase = 'idle';
     renderAll();
   }
@@ -517,6 +526,11 @@ async function handleTileClick(x, y) {
 
 function handlePlayerClick(pid) {
   const p = getPlayer(state, pid);
+  // While aiming a pass, a footballer is just a target tile.
+  if (ui.phase === 'aim-pass' && isHumanTurn() && !state.over) {
+    handleTileClick(p.x, p.y);
+    return;
+  }
   if (!isHumanTurn() || state.over || ui.aiTurn) {
     // spectating / opponent's turn: peek at stats
     ui.inspectId = ui.inspectId === pid ? null : pid;
@@ -551,7 +565,6 @@ async function handleRingAction(key) {
     ui.phase = 'aim-shot';
     renderAll();
   } else if (key === 'steal') {
-    pushHistory();
     ui.phase = 'busy';
     renderAll();
     await diceAction(() => doSteal(state, dice));
@@ -561,7 +574,16 @@ async function handleRingAction(key) {
 }
 
 async function handleGoalCell(cell, side) {
-  if (ui.phase !== 'aim-shot' || side !== goalSideFor(state.activeTeam)) return;
+  if (side !== goalSideFor(state.activeTeam)) return;
+  // Defender picking a dive on the goal itself (PvE, computer shooting).
+  if (ui.phase === 'pick-dive' && ui.diveResolve) {
+    const resolve = ui.diveResolve;
+    ui.diveResolve = null;
+    ui.phase = 'busy';
+    resolve(cell);
+    return;
+  }
+  if (ui.phase !== 'aim-shot') return;
   ui.phase = 'busy';
   renderAll();
   const shooterTeam = state.activeTeam;
@@ -672,16 +694,12 @@ async function runAiTurn() {
     } else if (act.type === 'shoot') {
       let dive;
       if (humanDefends(state.activeTeam)) {
+        // Pick the dive directly on the goal's six cells.
         dive = await new Promise((resolve) => {
-          overlay(`
-            <h2 class="team-home">Shot incoming!</h2>
-            <p>${TEAM_META[state.activeTeam].name} are shooting.
-            Pick where your keeper dives.</p>
-            <div class="dive-grid" id="dive-grid"></div>`);
-          buildDiveGrid($('dive-grid'), (cell) => {
-            hideOverlay();
-            resolve(cell);
-          });
+          ui.diveResolve = resolve;
+          ui.phase = 'pick-dive';
+          renderAll();
+          banner('🧤 Shot incoming — tap a goal cell to dive!', 'team-home', 1500);
         });
       } else {
         dive = aiPickDive(state, dice);

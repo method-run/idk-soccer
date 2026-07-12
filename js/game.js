@@ -64,7 +64,6 @@ export function newMatch({ mode = 'pve', maxTurns = MAX_TURNS } = {}) {
     moverId: null, // explicit mover selection; null = default (carrier/closest)
     moved: false,
     actionUsed: false,
-    formationSwitched: false,
     over: false,
     events: [],
   };
@@ -150,13 +149,29 @@ export function formationTargets(state, team) {
   return targets;
 }
 
+// Formations toggle freely during your turn; only the card active when the
+// turn ends drives the drift.
 export function setFormation(state, cardId) {
-  if (state.formationSwitched) return { ok: false, reason: 'already switched this turn' };
   if (state.formations[state.activeTeam] === cardId) return { ok: false, reason: 'already active' };
   state.formations[state.activeTeam] = cardId;
-  state.formationSwitched = true;
   logEvent(state, 'formation', `${state.activeTeam} switches to ${getFormation(cardId).name}`);
   return { ok: true };
+}
+
+// Outnumbering modifier for ball-control contests: each extra footballer
+// adjacent to the contest tile beyond the other side's count is worth +1,
+// capped at ±2. The two primary contestants don't count themselves.
+export function supportMod(state, x, y, team, excludeIds = []) {
+  let mine = 0;
+  let theirs = 0;
+  for (const p of state.players) {
+    if (excludeIds.includes(p.id)) continue;
+    if (cheb(p.x, p.y, x, y) <= 1) {
+      if (p.team === team) mine++;
+      else theirs++;
+    }
+  }
+  return Math.max(-2, Math.min(2, mine - theirs));
 }
 
 // ---------------------------------------------------------------------------
@@ -232,7 +247,8 @@ function resolvePickup(state, dice, player) {
     return;
   }
   const opp = opps.reduce((a, b) => (b.ctl > a.ctl ? b : a));
-  const mine = dice.roll2d6(player.ctl);
+  const sup = supportMod(state, state.ball.x, state.ball.y, player.team, [player.id, opp.id]);
+  const mine = dice.roll2d6(player.ctl + sup);
   const theirs = dice.roll2d6(opp.ctl);
   const won = mine.total >= theirs.total;
   logEvent(
@@ -244,7 +260,7 @@ function resolvePickup(state, dice, player) {
       tn: theirs.total, success: won,
       title: 'Loose ball duel',
       tnLabel: `#${opp.num} ${opp.name} rolled ${theirs.a}+${theirs.b}+${theirs.mod}`,
-      modLabel: `CTL +${player.ctl} (ties win)`,
+      modLabel: `CTL +${player.ctl}${sup ? ` ${sup > 0 ? '+' : ''}${sup} support` : ''} (ties win)`,
       opp: { a: theirs.a, b: theirs.b, mod: theirs.mod, total: theirs.total },
     }
   );
@@ -298,11 +314,12 @@ export function doSteal(state, dice) {
   if (!canSteal(state)) return { ok: false, reason: 'no steal available' };
   const me = getPlayer(state, activePlayerId(state));
   const c = carrier(state);
-  const r = dice.check(me.ctl, stealTN(c.ctl));
+  const sup = supportMod(state, c.x, c.y, me.team, [me.id, c.id]);
+  const r = dice.check(me.ctl + sup, stealTN(c.ctl));
   Object.assign(r, {
     title: 'Tackle',
     tnLabel: `8 base + ${c.ctl} their CTL`,
-    modLabel: `CTL +${me.ctl}`,
+    modLabel: `CTL +${me.ctl}${sup ? ` ${sup > 0 ? '+' : ''}${sup} support` : ''}`,
   });
   state.actionUsed = true;
   state.moverId = me.id;
@@ -576,7 +593,6 @@ export function endTurn(state, dice, { skipDrift = false } = {}) {
   state.moverId = null;
   state.moved = false;
   state.actionUsed = false;
-  state.formationSwitched = false;
 }
 
 // Every active-team footballer except the controlled mover drifts 1 step

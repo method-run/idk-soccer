@@ -274,11 +274,12 @@ test('accurate doubles is an unstoppable goal', () => {
   assert.equal(res.outcome, 'goal');
 });
 
-test('formation switch is once per turn and drift approaches targets', () => {
+test('formations toggle freely; drift approaches the final card', () => {
   const s = newMatch();
   const dice = stubDice([3, 3]);
-  assert.ok(setFormation(s, 'attack').ok);
-  assert.ok(!setFormation(s, 'bus').ok);
+  assert.ok(setFormation(s, 'bus').ok, 'first switch');
+  assert.ok(setFormation(s, 'attack').ok, 'can switch again in the same turn');
+  assert.ok(!setFormation(s, 'attack').ok, 'same card is a no-op');
   const targets = formationTargets(s, 'home');
   const distBefore = s.players
     .filter((p) => p.team === 'home')
@@ -410,4 +411,46 @@ test('rolls carry cinematic metadata (title, target math, modifier)', () => {
   assert.equal(e.roll.title, 'Pass');
   assert.match(e.roll.tnLabel, /6 base/);
   assert.match(e.roll.modLabel, /PAS \+\d/);
+});
+
+test('outnumbering: support modifier swings a contested pickup', () => {
+  const s = newMatch();
+  clearBoard(s);
+  const me = getPlayer(s, 'home-6'); // ctl +1 (lower number: forced mover)
+  const mate = getPlayer(s, 'home-7'); // adjacent supporter
+  const opp = getPlayer(s, 'away-7'); // ctl +0
+  me.x = 3;
+  me.y = 9;
+  mate.x = 2;
+  mate.y = 8; // adjacent to the ball tile -> +1 support
+  opp.x = 3;
+  opp.y = 7;
+  s.ball = { x: 3, y: 8, carrier: null };
+  // mover 1+2 (+1 ctl, +1 support) = 5 vs opp 2+3 (+0) = 5 -> tie -> mover.
+  // Without support this is a 4 vs 5 loss.
+  const dice = stubDice([1, 2, 2, 3]);
+  assert.equal(activePlayerId(s), me.id);
+  doMove(s, dice, 3, 8);
+  assert.equal(s.ball.carrier, me.id, '2-on-1 wins the tie');
+  const e = s.events.findLast((ev) => ev.type === 'contest');
+  assert.match(e.roll.modLabel, /support/);
+});
+
+test('outnumbering: support modifier applies to steals', () => {
+  const s = newMatch();
+  clearBoard(s);
+  const vic = getPlayer(s, 'away-7'); // ctl 0 -> TN 8
+  const me = getPlayer(s, 'home-2'); // ctl +2
+  const mate = getPlayer(s, 'home-3'); // supporter next to the carrier
+  vic.x = 3;
+  vic.y = 8;
+  me.x = 3;
+  me.y = 9;
+  mate.x = 4;
+  mate.y = 9;
+  s.ball = { x: 3, y: 8, carrier: vic.id };
+  const dice = stubDice([3, 3]);
+  const res = doSteal(s, dice);
+  assert.equal(res.roll.mod, 3, 'CTL +2 plus +1 support');
+  assert.ok(res.roll.success, '6+3=9 vs 8');
 });
