@@ -39,6 +39,14 @@ export function initBoard(svg, state, handlers) {
   svg.setAttribute('viewBox', `0 0 ${VW} ${VH}`);
   svg.innerHTML = '';
 
+  // arrowhead marker for drift-preview arrows
+  const defs = el('defs', {}, svg);
+  const marker = el('marker', {
+    id: 'arrowhead', markerWidth: 7, markerHeight: 7,
+    refX: 5, refY: 3.5, orient: 'auto',
+  }, defs);
+  el('path', { d: 'M0,0 L7,3.5 L0,7 Z', class: 'arrowhead' }, marker);
+
   const gField = el('g', { class: 'layer-field' }, svg);
   drawPitch(gField);
 
@@ -58,6 +66,7 @@ export function initBoard(svg, state, handlers) {
   ctx.goalCellEls.left = drawGoal(svg, ctx, 'left');
 
   ctx.gTargets = el('g', { class: 'layer-targets' }, svg);
+  ctx.gArrows = el('g', { class: 'layer-arrows' }, svg);
   ctx.gHighlights = el('g', { class: 'layer-highlights' }, svg);
   ctx.gPlayers = el('g', { class: 'layer-players' }, svg);
 
@@ -79,6 +88,10 @@ export function initBoard(svg, state, handlers) {
   el('circle', { r: 8, cx: 0, cy: 0, class: 'ball-outer' }, ball);
   el('circle', { r: 3, cx: 0, cy: 0, class: 'ball-inner' }, ball);
   ctx.ballEl = ball;
+
+  // top-most interactive layers: action ring and stats card
+  ctx.gRing = el('g', { class: 'layer-ring' }, svg);
+  ctx.gStats = el('g', { class: 'layer-stats' }, svg);
 
   // Tile click-catcher (pieces stopPropagation)
   svg.addEventListener('click', (ev) => {
@@ -220,6 +233,77 @@ export function render(ctx, state, ui) {
       c.label.textContent = aiming && ui.aimTNs ? ui.aimTNs({ col: c.col, high: c.high }) : '';
     }
   }
+
+  // drift-preview arrows
+  ctx.gArrows.innerHTML = '';
+  for (const a of ui.arrows || []) {
+    el('line', {
+      x1: cx(a.from[0], a.from[1]), y1: cy(a.from[0]),
+      x2: cx(a.to[0], a.to[1]), y2: cy(a.to[0]),
+      class: `drift-arrow team-${a.team}`,
+      'marker-end': 'url(#arrowhead)',
+    }, ctx.gArrows);
+  }
+
+  renderRing(ctx, state, ui);
+  renderStatsCard(ctx, state, ui);
+}
+
+// Action ring: pill buttons arced around the selected player.
+function renderRing(ctx, state, ui) {
+  ctx.gRing.innerHTML = '';
+  const ring = ui.ring;
+  if (!ring || !ring.items.length) return;
+  const p = state.players.find((q) => q.id === ring.playerId);
+  if (!p) return;
+  const px = cx(p.x, p.y);
+  const py = cy(p.x);
+  const n = ring.items.length;
+  const spread = n === 1 ? [-90] : n === 2 ? [-135, -45] : [-160, -90, -20];
+  const flip = py < FY0 + 70; // near the top edge: arc below instead
+  const R = 54;
+  ring.items.forEach((item, i) => {
+    const ang = ((flip ? -spread[i] : spread[i]) * Math.PI) / 180;
+    let bx = px + R * Math.cos(ang);
+    let by = py + R * Math.sin(ang);
+    bx = Math.max(48, Math.min(VW - 48, bx));
+    const g = el('g', {
+      class: `ring-item${item.enabled === false ? ' ring-disabled' : ''}`,
+      'data-action': item.key,
+    }, ctx.gRing);
+    el('rect', { x: bx - 42, y: by - 14, width: 84, height: 28, rx: 14 }, g);
+    const t1 = el('text', { x: bx, y: by - 2, class: 'ring-label' }, g);
+    t1.textContent = item.label;
+    const t2 = el('text', { x: bx, y: by + 10, class: 'ring-sub' }, g);
+    t2.textContent = item.sub || '';
+    g.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      if (item.enabled !== false) ctx.handlers.onRingAction?.(item.key);
+    });
+  });
+}
+
+// Stats card next to a footballer (view 3 / inspecting an opponent).
+function renderStatsCard(ctx, state, ui) {
+  ctx.gStats.innerHTML = '';
+  if (!ui.statsBox) return;
+  const p = state.players.find((q) => q.id === ui.statsBox);
+  if (!p) return;
+  const bw = 148;
+  const bh = 64;
+  let bx = cx(p.x, p.y) + 26;
+  let by = cy(p.x) - bh / 2;
+  if (bx + bw > VW - 4) bx = cx(p.x, p.y) - 26 - bw;
+  by = Math.max(4, Math.min(VH - bh - 4, by));
+  const g = el('g', { class: `stats-box team-${p.team}` }, ctx.gStats);
+  el('rect', { x: bx, y: by, width: bw, height: bh, rx: 8, class: 'stats-bg' }, g);
+  el('rect', { x: bx, y: by, width: bw, height: 20, rx: 8, class: 'stats-head' }, g);
+  const name = el('text', { x: bx + 8, y: by + 14, class: 'stats-name' }, g);
+  name.textContent = `#${p.num} ${p.name} (${p.role})`;
+  const l1 = el('text', { x: bx + 8, y: by + 37, class: 'stats-line' }, g);
+  l1.textContent = `SPD ${p.spd}   SHO +${p.sho}`;
+  const l2 = el('text', { x: bx + 8, y: by + 54, class: 'stats-line' }, g);
+  l2.textContent = `PAS +${p.pas}   CTL +${p.ctl}`;
 }
 
 // Which goal (screen side) a team attacks.

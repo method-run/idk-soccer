@@ -61,6 +61,7 @@ export function newMatch({ mode = 'pve', maxTurns = MAX_TURNS } = {}) {
     ball: { x: CENTER_X, y: Math.floor(H / 2), carrier: null },
     players,
     formations: { home: 'balanced', away: 'balanced' },
+    moverId: null, // explicit mover selection; null = default (carrier/closest)
     moved: false,
     actionUsed: false,
     formationSwitched: false,
@@ -88,10 +89,15 @@ function logEvent(state, type, text, roll = null) {
 }
 
 // ---------------------------------------------------------------------------
-// Active (forced) mover: your carrier, else your closest to the ball.
+// Active mover: an explicit selection if one was made this turn, else the
+// default — your carrier, else your closest to the ball.
 
 export function activePlayerId(state) {
   const team = state.activeTeam;
+  if (state.moverId) {
+    const sel = getPlayer(state, state.moverId);
+    if (sel && sel.team === team) return sel.id;
+  }
   const c = carrier(state);
   if (c && c.team === team) return c.id;
   let best = null;
@@ -106,6 +112,17 @@ export function activePlayerId(state) {
     }
   }
   return best.id;
+}
+
+// Pick which footballer to control this turn. Free until you move or act.
+export function selectMover(state, id) {
+  if (state.moved || state.actionUsed) return { ok: false, reason: 'already committed' };
+  const p = getPlayer(state, id);
+  if (!p || p.team !== state.activeTeam) return { ok: false, reason: 'not your player' };
+  // The carrier is always the one who passes/shoots; selecting someone else
+  // just means you move that player instead.
+  state.moverId = id;
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -186,6 +203,7 @@ export function doMove(state, dice, x, y) {
   player.x = x;
   player.y = y;
   state.moved = true;
+  state.moverId = player.id; // lock the selection once committed
   if (hadBall) {
     state.ball.x = x;
     state.ball.y = y;
@@ -221,7 +239,14 @@ function resolvePickup(state, dice, player) {
     state,
     'contest',
     `Contested ball! #${player.num} ${player.name} [${mine.a}+${mine.b}+${mine.mod}=${mine.total}] vs #${opp.num} ${opp.name} [${theirs.a}+${theirs.b}+${theirs.mod}=${theirs.total}]`,
-    { a: mine.a, b: mine.b, mod: mine.mod, total: mine.total, tn: theirs.total, success: won }
+    {
+      a: mine.a, b: mine.b, mod: mine.mod, total: mine.total,
+      tn: theirs.total, success: won,
+      title: 'Loose ball duel',
+      tnLabel: `#${opp.num} ${opp.name} rolled ${theirs.a}+${theirs.b}+${theirs.mod}`,
+      modLabel: `CTL +${player.ctl} (ties win)`,
+      opp: { a: theirs.a, b: theirs.b, mod: theirs.mod, total: theirs.total },
+    }
   );
   if (won) {
     state.ball.carrier = player.id;
@@ -274,7 +299,13 @@ export function doSteal(state, dice) {
   const me = getPlayer(state, activePlayerId(state));
   const c = carrier(state);
   const r = dice.check(me.ctl, stealTN(c.ctl));
+  Object.assign(r, {
+    title: 'Tackle',
+    tnLabel: `8 base + ${c.ctl} their CTL`,
+    modLabel: `CTL +${me.ctl}`,
+  });
   state.actionUsed = true;
+  state.moverId = me.id;
   logEvent(
     state,
     'steal',
@@ -312,7 +343,13 @@ export function doPass(state, dice, x, y) {
     return { ok: false, reason: 'bad target' };
   }
   const r = dice.check(passer.pas, passTN(dist));
+  Object.assign(r, {
+    title: 'Pass',
+    tnLabel: `6 base + ${Math.floor(dist / 3)} distance`,
+    modLabel: `PAS +${passer.pas}`,
+  });
   state.actionUsed = true;
+  state.moverId = passer.id;
   state.ball.carrier = null;
   logEvent(
     state,
@@ -377,7 +414,14 @@ export function doShoot(state, dice, aim, dive) {
   const keeper = defendingKeeper(state, shooter.team);
   const dist = shotDistance(state, shooter);
   const r = dice.check(shooter.sho, shotTN(dist, aim));
+  const distPart = Math.ceil(Math.max(0, dist - 2) / 2);
+  Object.assign(r, {
+    title: 'Shot',
+    tnLabel: `8 base${distPart ? ` + ${distPart} distance` : ''}${aim.col !== 1 ? ' + 1 corner' : ''}`,
+    modLabel: `SHO +${shooter.sho}`,
+  });
   state.actionUsed = true;
+  state.moverId = shooter.id;
   const aimName = `${aim.high ? 'high' : 'low'} ${['left', 'center', 'right'][aim.col]}`;
   logEvent(
     state,
@@ -397,6 +441,11 @@ export function doShoot(state, dice, aim, dive) {
       logEvent(state, 'save', `Keeper dove ${diveName} — right there! SAVED`);
     } else if (dive.col === aim.col) {
       keeperRoll = dice.check(keeper.ctl, 8);
+      Object.assign(keeperRoll, {
+        title: 'Keeper scramble',
+        tnLabel: '8 base',
+        modLabel: `CTL +${keeper.ctl}`,
+      });
       if (keeperRoll.success) {
         outcome = 'save';
         logEvent(state, 'save',
@@ -468,6 +517,7 @@ function placeAt(state, player, x, y) {
 
 export function kickoff(state, teamWithBall) {
   const mid = Math.floor(H / 2);
+  state.moverId = null;
   state.ball.carrier = null;
   state.ball.x = CENTER_X;
   state.ball.y = teamWithBall === 'home' ? mid : mid - 1;
@@ -523,29 +573,37 @@ export function endTurn(state, dice, { skipDrift = false } = {}) {
     return;
   }
   state.activeTeam = otherTeam(state.activeTeam);
+  state.moverId = null;
   state.moved = false;
   state.actionUsed = false;
   state.formationSwitched = false;
 }
 
-// Every active-team footballer except the forced mover drifts 1 step
+// Every active-team footballer except the controlled mover drifts 1 step
 // (8-directional) toward its formation slot. Blocked tiles (players, the
-// loose ball) halt drift for that piece this turn.
-function drift(state) {
+// loose ball) halt drift for that piece this turn. driftPreview computes the
+// steps without applying them (the UI draws them as arrows); drift applies
+// the identical steps.
+export function driftPreview(state) {
   const team = state.activeTeam;
   const mover = activePlayerId(state);
   const targets = formationTargets(state, team);
+  const occupied = new Set(state.players.map((p) => `${p.x},${p.y}`));
+  const steps = [];
   for (const p of state.players.filter((q) => q.team === team)) {
-    if (p.id === mover) continue;
+    // The controlled mover holds position; so does whoever holds the ball
+    // (drifting a carrier would drag possession around for free).
+    if (p.id === mover || p.id === state.ball.carrier) continue;
     const t = targets[p.id];
-    if (p.x === t.x && p.y === t.y) continue;
+    const cur = { x: p.x, y: p.y };
+    if (cur.x === t.x && cur.y === t.y) continue;
     let best = null;
-    let bestD = (p.x - t.x) ** 2 + (p.y - t.y) ** 2;
+    let bestD = (cur.x - t.x) ** 2 + (cur.y - t.y) ** 2;
     for (const [dx, dy] of DIRS8) {
-      const nx = p.x + dx;
-      const ny = p.y + dy;
+      const nx = cur.x + dx;
+      const ny = cur.y + dy;
       if (!inBounds(nx, ny)) continue;
-      if (occupantAt(state, nx, ny)) continue;
+      if (occupied.has(`${nx},${ny}`)) continue;
       if (!state.ball.carrier && state.ball.x === nx && state.ball.y === ny) continue;
       const d = (nx - t.x) ** 2 + (ny - t.y) ** 2;
       if (d < bestD) {
@@ -554,8 +612,18 @@ function drift(state) {
       }
     }
     if (best) {
-      p.x = best[0];
-      p.y = best[1];
+      occupied.delete(`${cur.x},${cur.y}`);
+      occupied.add(`${best[0]},${best[1]}`);
+      steps.push({ id: p.id, from: [cur.x, cur.y], to: best });
     }
+  }
+  return steps;
+}
+
+function drift(state) {
+  for (const s of driftPreview(state)) {
+    const p = getPlayer(state, s.id);
+    p.x = s.to[0];
+    p.y = s.to[1];
   }
 }

@@ -29,11 +29,14 @@ npm test
 
 ## The rules in one breath
 
-Each turn: optionally switch your formation card, move your *forced mover*
-(ball carrier, else your closest to the ball), take one ball action
-(pass / shoot / steal), and end your turn — everyone else drifts one square
-toward their formation slot. All rolls are **2d6 + stat vs a target number**.
-Shots aim at one of 6 goal cells; the keeper commits to a dive blind.
+Each turn: optionally switch your formation card (your team panel shows it;
+drift arrows preview the auto-moves), pick one footballer to control
+(defaults to the carrier / closest to the ball), move them, take one ball
+action from the ring around them (pass / shoot / steal — with odds), and end
+your turn — everyone else drifts one square toward their formation slot.
+Undo/redo freely until you end your turn. All rolls are **2d6 + stat vs a
+target number**, resolved with a center-screen dice cinematic. Shots aim at
+one of 6 goal cells; the keeper commits to a dive blind.
 Full rules: the in-game **How to play** screen.
 
 ## Project layout

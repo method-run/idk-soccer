@@ -1,18 +1,20 @@
-// App controller: screens, human interaction state machine, AI turn driver.
+// App controller: screens, human interaction state machine, AI turn driver,
+// undo/redo history, and the dice cinematic.
 
 import { makeDice } from './dice.js';
 import { W, H, FORMATIONS, TEAM_META } from './data.js';
 import {
   newMatch, activePlayerId, getPlayer, carrier, reachable, moveRange,
   doMove, doPass, doSteal, doShoot, canSteal, canShoot, canPass,
-  setFormation, endTurn, cheb, shotDistance, shotTN, passTN, stealTN,
-  PASS_MAX, goalCells, defendingKeeper,
+  setFormation, selectMover, driftPreview, endTurn, cheb,
+  shotDistance, shotTN, passTN, stealTN, PASS_MAX, getFormation,
 } from './game.js';
 import { aiChooseFormation, aiChooseMove, aiChooseAction, aiPickDive, p2d6 } from './ai.js';
 import { initBoard, render, goalSideFor } from './render.js';
 
 const $ = (id) => document.getElementById(id);
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms / ui.speed));
+const rawSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms) => rawSleep(ms / ui.speed);
 
 let state = null;
 let dice = null;
@@ -22,9 +24,14 @@ const ui = {
   phase: 'idle', // idle | aim-pass | aim-shot | busy
   aiTurn: false,
   seenEvents: 0,
-  speed: 1, // playback multiplier (CvC spectator control)
-  session: 0, // bumped on new match / quit; stale async AI loops check it
+  speed: 1,
+  session: 0, // bumped on new match / quit; stale async loops check it
+  paused: false,
+  playerView: 1, // 0 minimal | 1 action ring | 2 stats
+  inspectId: null, // stats peek at a non-selected player
+  skipRoll: false,
 };
+const hist = { undo: [], redo: [] };
 
 // ---------------------------------------------------------------------------
 // Screens & overlays
@@ -60,19 +67,25 @@ function startMatch(mode) {
   ui.seenEvents = 0;
   ui.session++;
   ui.speed = 1;
+  ui.paused = false;
+  ui.playerView = 1;
+  ui.inspectId = null;
+  hist.undo.length = 0;
+  hist.redo.length = 0;
   $('btn-speed').hidden = mode !== 'cvc';
   $('btn-speed').textContent = '1×';
+  $('btn-pause').hidden = mode !== 'cvc';
+  $('btn-pause').textContent = '⏸';
   dice = makeDice();
   state = newMatch({ mode });
   board = initBoard($('board'), state, {
     onTileClick: handleTileClick,
     onGoalCellClick: handleGoalCell,
     onPlayerClick: handlePlayerClick,
+    onRingAction: handleRingAction,
   });
   $('log').innerHTML = '';
   $('dice-tray').innerHTML = '';
-  $('name-home').textContent = TEAM_META.home.name;
-  $('name-away').textContent = TEAM_META.away.name;
   show('screen-match');
   beginTurn();
 }
@@ -83,14 +96,17 @@ function isHumanTurn() {
 }
 
 function humanDefends(team) {
-  // Is the keeper's dive picked by a human when `team` shoots?
   if (ui.mode === 'cvc') return false;
   return ui.mode === 'pvp' || team === 'away';
 }
 
 async function beginTurn() {
+  hist.undo.length = 0;
+  hist.redo.length = 0;
   ui.phase = 'idle';
   ui.aiTurn = !isHumanTurn();
+  ui.playerView = 1;
+  ui.inspectId = null;
   renderAll();
   if (state.over) return showFullTime();
   if (ui.aiTurn) runAiTurn();
@@ -100,16 +116,60 @@ async function beginTurn() {
 }
 
 // ---------------------------------------------------------------------------
+// Undo / redo (until you end your turn)
+
+function snapshot() {
+  return { state: structuredClone(state), dice: dice.getState() };
+}
+
+function pushHistory() {
+  if (!isHumanTurn()) return;
+  hist.undo.push(snapshot());
+  hist.redo.length = 0;
+}
+
+function restore(snap) {
+  state = snap.state;
+  dice.setState(snap.dice);
+  ui.phase = 'idle';
+  ui.inspectId = null;
+  rebuildLog();
+  renderAll();
+}
+
+function doUndo() {
+  if (!hist.undo.length || !isHumanTurn() || ui.phase === 'busy') return;
+  hist.redo.push(snapshot());
+  restore(hist.undo.pop());
+}
+
+function doRedo() {
+  if (!hist.redo.length || !isHumanTurn() || ui.phase === 'busy') return;
+  hist.undo.push(snapshot());
+  restore(hist.redo.pop());
+}
+
+function rebuildLog() {
+  $('log').innerHTML = '';
+  $('dice-tray').innerHTML = '';
+  ui.seenEvents = 0;
+  renderLog(true);
+}
+
+// ---------------------------------------------------------------------------
 // Rendering
 
 function renderAll() {
+  const human = isHumanTurn() && !state.over;
   const activeId = state.over ? null : activePlayerId(state);
+  const selected = activeId;
+  const selPlayer = selected ? getPlayer(state, selected) : null;
+
   const highlights = [];
-  if (!state.over && isHumanTurn() && ui.phase === 'idle' && !state.moved) {
-    for (const key of reachable(state, activeId).keys()) {
+  if (human && ui.phase === 'idle' && !state.moved && ui.playerView !== 0) {
+    for (const key of reachable(state, selected).keys()) {
       const [x, y] = key.split(',').map(Number);
-      const p = getPlayer(state, activeId);
-      if (x === p.x && y === p.y) continue;
+      if (x === selPlayer.x && y === selPlayer.y) continue;
       highlights.push({ x, y, kind: 'move' });
     }
   }
@@ -119,11 +179,12 @@ function renderAll() {
       for (let y = 0; y < H; y++) {
         const d = cheb(c.x, c.y, x, y);
         if (d >= 1 && d <= PASS_MAX) {
-          highlights.push({ x, y, kind: 'pass', label: passTN(d) });
+          highlights.push({ x, y, kind: 'pass', label: `${pct(c.pas, passTN(d))}%` });
         }
       }
     }
   }
+
   render(board, state, {
     activeId,
     aiTurn: ui.aiTurn,
@@ -133,72 +194,91 @@ function renderAll() {
     aimGoal: ui.phase === 'aim-shot' ? goalSideFor(state.activeTeam) : null,
     aimTNs: (cell) => {
       const c = carrier(state);
-      return c ? shotTN(shotDistance(state, c), cell) : '';
+      if (!c) return '';
+      const tn = shotTN(shotDistance(state, c), cell);
+      return `${pct(c.sho, tn)}%`;
     },
+    arrows:
+      human && state.formationSwitched
+        ? driftPreview(state).map((s) => ({ ...s, team: state.activeTeam }))
+        : null,
+    ring: human && ui.phase === 'idle' && ui.playerView === 1 ? buildRing(selected) : null,
+    statsBox:
+      ui.inspectId || (human && ui.playerView === 2 && ui.phase === 'idle' ? selected : null),
   });
-  renderTopbar();
+  renderClock();
+  renderTeamPanels();
   renderMoverChip(activeId);
   renderButtons();
-  renderCards();
   renderLog();
 }
 
-function renderTopbar() {
-  $('score-home').textContent = state.score.home;
-  $('score-away').textContent = state.score.away;
-  $('turn-label').textContent = state.over
-    ? 'Full time'
-    : `Turn ${state.turn}/${state.maxTurns}`;
-  const t = TEAM_META[state.activeTeam];
-  $('turn-team').textContent = state.over ? '' : `${t.name} to play`;
-  $('turn-team').style.color = t.color;
+function pct(mod, tn) {
+  return Math.round(p2d6(mod, tn) * 100);
 }
 
-function renderMoverChip(activeId) {
-  const chip = $('mover-chip');
-  if (!activeId) {
-    chip.innerHTML = '';
-    return;
+function buildRing(selectedId) {
+  const items = [];
+  const p = getPlayer(state, selectedId);
+  if (canShoot(state) && state.ball.carrier === selectedId) {
+    const tn = shotTN(shotDistance(state, p), { col: 1, high: false });
+    items.push({ key: 'shoot', label: 'Shoot', sub: `~${pct(p.sho, tn)}% on target` });
   }
-  const p = getPlayer(state, activeId);
-  const hasBall = state.ball.carrier === p.id;
-  chip.innerHTML = `
-    <span class="chip-badge team-${p.team}">#${p.num}</span>
-    <span class="chip-name">${p.name}${hasBall ? ' ⚽' : ''}</span>
-    <span class="chip-stats">SPD ${p.spd} · SHO +${p.sho} · PAS +${p.pas} · CTL +${p.ctl}</span>
-    <span class="chip-hint">${hint(p, hasBall)}</span>`;
-}
-
-function hint(p, hasBall) {
-  if (ui.aiTurn) return 'Computer is thinking…';
-  if (ui.phase === 'aim-pass') return 'Tap a square to pass there (number = target to beat)';
-  if (ui.phase === 'aim-shot') return 'Tap a goal cell to aim your shot';
-  if (!state.moved) {
-    return hasBall
-      ? `Dribble up to ${moveRange(state, p)} (ball slows you), then act`
-      : `Move up to ${moveRange(state, p)} — land on the ball to take it`;
+  if (canPass(state) && state.ball.carrier === selectedId) {
+    items.push({ key: 'pass', label: 'Pass', sub: 'pick a target' });
   }
-  return 'Choose an action or end your turn';
-}
-
-function renderButtons() {
-  const human = isHumanTurn() && !state.over && ui.phase !== 'busy';
-  const aiming = ui.phase === 'aim-pass' || ui.phase === 'aim-shot';
-  $('btn-pass').disabled = !human || aiming || !canPass(state);
-  $('btn-shoot').disabled = !human || aiming || !canShoot(state);
-  $('btn-steal').disabled = !human || aiming || !canSteal(state);
-  $('btn-end').disabled = !human || aiming;
-  $('btn-cancel').hidden = !aiming;
   if (canSteal(state)) {
     const c = carrier(state);
-    $('btn-steal').textContent = `Steal (vs ${stealTN(c.ctl)})`;
-  } else {
-    $('btn-steal').textContent = 'Steal';
+    items.push({ key: 'steal', label: 'Steal', sub: `${pct(p.ctl, stealTN(c.ctl))}%` });
+  }
+  return items.length ? { playerId: selectedId, items } : null;
+}
+
+function renderClock() {
+  const minute = state.over
+    ? 90
+    : Math.min(90, Math.round(((state.turn - 1) / state.maxTurns) * 90));
+  $('clock-min').textContent = `${minute}′`;
+  $('clock-half').textContent = state.over
+    ? 'Full time'
+    : state.turn - 1 < state.maxTurns / 2
+      ? '1st Half'
+      : '2nd Half';
+  $('progress-fill').style.width = `${((state.turn - 1) / state.maxTurns) * 100}%`;
+  $('turn-label').textContent = `Turn ${Math.min(state.turn, state.maxTurns)}/${state.maxTurns}`;
+}
+
+function controllerLabel(team) {
+  if (ui.mode === 'pvp') return 'Human';
+  if (ui.mode === 'cvc') return 'CPU';
+  return team === 'home' ? 'You' : 'CPU';
+}
+
+function renderTeamPanels() {
+  for (const team of ['home', 'away']) {
+    const panel = $(`panel-${team}`);
+    const meta = TEAM_META[team];
+    const card = getFormation(state.formations[team]);
+    const active = !state.over && state.activeTeam === team;
+    const canPick =
+      active && isHumanTurn() && ui.phase === 'idle' && !state.over;
+    panel.classList.toggle('tp-active', active);
+    panel.innerHTML = `
+      <div class="tp-name">${meta.name}</div>
+      <div class="tp-score">${state.score[team]}</div>
+      <div class="tp-controller">${controllerLabel(team)}${active ? ' · playing' : ''}</div>
+      <button class="tp-card" ${canPick ? '' : 'disabled'} data-team="${team}">
+        ${cardPitchSVG(card, team)}
+        <b>${card.short}</b>
+        <span>${card.name.replace(/^[\d-]+ /, '')}</span>
+        ${canPick ? '<em>tap to switch</em>' : ''}
+      </button>`;
+    panel.querySelector('.tp-card').addEventListener('click', () => {
+      if (canPick) openFormationPicker(team);
+    });
   }
 }
 
-// Mini pitch drawing for a formation card, oriented the way `team` plays
-// on screen (home attacks right, away attacks left).
 function cardPitchSVG(f, team) {
   const pw = 62;
   const ph = 32;
@@ -217,33 +297,75 @@ function cardPitchSVG(f, team) {
     ${dots}</svg>`;
 }
 
-function renderCards() {
-  const wrap = $('cards');
-  wrap.innerHTML = '';
-  // In PvE always show the human's cards; in hotseat, the active team's.
-  const team = ui.mode === 'pve' ? 'home' : state.activeTeam;
-  const myTurn = isHumanTurn() && team === state.activeTeam;
+function openFormationPicker(team) {
+  const current = state.formations[team];
+  overlay(`
+    <h2 class="team-${team}">${TEAM_META[team].name}: pick a formation</h2>
+    <p>Teammates drift 1 square toward their slots when you end your turn.
+    Arrows on the board will preview the moves. Once per turn.</p>
+    <div class="formation-grid card-${team}" id="formation-grid"></div>
+    <div class="overlay-buttons"><button id="formation-cancel">Cancel</button></div>`);
+  const grid = $('formation-grid');
   for (const f of FORMATIONS) {
     const b = document.createElement('button');
-    b.className = `card card-${team}`;
-    const active = state.formations[team] === f.id;
-    if (active) b.classList.add('card-active');
-    b.disabled =
-      !myTurn || state.over || ui.phase !== 'idle' ||
-      (state.formationSwitched && !active) || active;
+    b.className = 'card';
+    if (f.id === current) {
+      b.classList.add('card-active');
+      b.disabled = true;
+    }
+    if (state.formationSwitched && f.id !== current) b.disabled = true;
     b.innerHTML = `${cardPitchSVG(f, team)}<b>${f.short}</b><span>${f.name.replace(/^[\d-]+ /, '')}</span>`;
     b.addEventListener('click', () => {
-      if (setFormation(state, f.id).ok) renderAll();
+      pushHistory();
+      setFormation(state, f.id);
+      hideOverlay();
+      renderAll();
     });
-    wrap.appendChild(b);
+    grid.appendChild(b);
   }
+  $('formation-cancel').addEventListener('click', hideOverlay);
+}
+
+function renderMoverChip(activeId) {
+  const chip = $('mover-chip');
+  if (!activeId) {
+    chip.innerHTML = '';
+    return;
+  }
+  const p = getPlayer(state, activeId);
+  const hasBall = state.ball.carrier === p.id;
+  chip.innerHTML = `
+    <span class="chip-badge team-${p.team}">#${p.num}</span>
+    <span class="chip-name">${p.name}${hasBall ? ' ⚽' : ''}</span>
+    <span class="chip-hint">${hint(p, hasBall)}</span>`;
+}
+
+function hint(p, hasBall) {
+  if (ui.aiTurn) return 'Computer is thinking…';
+  if (ui.phase === 'aim-pass') return 'Tap a square to pass there (odds shown)';
+  if (ui.phase === 'aim-shot') return 'Tap a goal cell to aim (accuracy shown)';
+  if (!state.moved && !state.actionUsed) {
+    return hasBall
+      ? `Dribble up to ${moveRange(state, p)} · tap them to cycle ring/stats · tap a teammate to control them instead`
+      : `Move up to ${moveRange(state, p)} — land on the ball to take it · tap a teammate to switch`;
+  }
+  if (!state.moved) return 'You can still move, or end your turn';
+  return 'Act from the ring, undo, or end your turn';
+}
+
+function renderButtons() {
+  const human = isHumanTurn() && !state.over && ui.phase !== 'busy';
+  const aiming = ui.phase === 'aim-pass' || ui.phase === 'aim-shot';
+  $('btn-end').disabled = !human || aiming;
+  $('btn-cancel').hidden = !aiming;
+  $('btn-undo').disabled = !human || aiming || !hist.undo.length;
+  $('btn-redo').disabled = !human || aiming || !hist.redo.length;
 }
 
 const DIE = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
 
 // ---------------------------------------------------------------------------
-// Dice tray: big readable "what I rolled vs what I needed" for every roll,
-// both teams. Fed from engine events as they stream into the log.
+// Dice tray (compact history) — the cinematic overlay is separate.
 
 const PIPS = {
   1: [[50, 50]],
@@ -254,21 +376,12 @@ const PIPS = {
   6: [[28, 25], [28, 50], [28, 75], [72, 25], [72, 50], [72, 75]],
 };
 
-function dieFace(v) {
-  const pips = PIPS[v]
+function dieFace(v, cls = '') {
+  const pips = (PIPS[v] || [])
     .map(([x, y]) => `<span class="pip" style="left:${x}%;top:${y}%"></span>`)
     .join('');
-  return `<span class="die">${pips}</span>`;
+  return `<span class="die ${cls}" data-value="${v}">${pips}</span>`;
 }
-
-const ROLL_LABELS = {
-  pass: 'Pass',
-  shot: 'Shot',
-  steal: 'Tackle',
-  contest: 'Loose ball',
-  save: 'Keeper',
-  goal: 'Keeper',
-};
 
 function trayAdd(e) {
   const tray = $('dice-tray');
@@ -277,7 +390,7 @@ function trayAdd(e) {
   div.className = `tray-roll team-${e.team}`;
   const mod = r.mod >= 0 ? `+${r.mod}` : `${r.mod}`;
   div.innerHTML = `
-    <span class="tray-label">${ROLL_LABELS[e.type] || e.type}</span>
+    <span class="tray-label">${r.title || e.type}</span>
     ${dieFace(r.a)}${dieFace(r.b)}
     <span class="tray-math">${mod} = <b>${r.total}</b> vs ${r.tn}</span>
     <span class="tray-result ${r.success ? 'ok' : 'no'}">${r.success ? '✓' : '✗'}</span>`;
@@ -285,7 +398,7 @@ function trayAdd(e) {
   while (tray.children.length > 3) tray.lastChild.remove();
 }
 
-function renderLog() {
+function renderLog(skipTray = false) {
   const log = $('log');
   const evs = state.events;
   for (; ui.seenEvents < evs.length; ui.seenEvents++) {
@@ -300,46 +413,151 @@ function renderLog() {
     }
     div.innerHTML = `<span class="log-turn">T${e.turn}</span> ${e.text}${roll}`;
     log.appendChild(div);
-    if (e.roll) trayAdd(e);
+    if (e.roll && !skipTray) trayAdd(e);
   }
   log.scrollTop = log.scrollHeight;
 }
 
 // ---------------------------------------------------------------------------
+// Dice cinematic: pre-roll target math -> animated roll -> result.
+// Wraps an engine call; plays one sequence per roll the call produced.
+
+async function diceAction(exec) {
+  const before = state.events.length;
+  const mySession = ui.session;
+  const result = exec();
+  const rollEvents = state.events.slice(before).filter((e) => e.roll);
+  for (const e of rollEvents) {
+    if (ui.session !== mySession) break;
+    await playRoll(e);
+  }
+  return result;
+}
+
+async function playRoll(e) {
+  const r = e.roll;
+  const o = $('dice-overlay');
+  ui.skipRoll = false;
+  const oppLine = r.opp
+    ? `<div class="do-opp">${dieFace(r.opp.a)}${dieFace(r.opp.b)}
+       <span>+${r.opp.mod} = ${r.opp.total}</span></div>`
+    : '';
+  o.innerHTML = `
+    <div class="do-box team-${e.team}">
+      <div class="do-title">${r.title || 'Roll'}</div>
+      <div class="do-target">Need <b>${r.tn}</b></div>
+      <div class="do-math">${r.tnLabel || ''}</div>
+      ${oppLine}
+      <div class="do-dice">${dieFace(0, 'rolling')}${dieFace(0, 'rolling')}</div>
+      <div class="do-mod">${r.modLabel || `+${r.mod}`}</div>
+      <div class="do-result"></div>
+    </div>`;
+  o.classList.add('visible');
+  const [d1, d2] = o.querySelectorAll('.do-dice .die');
+  const resultEl = o.querySelector('.do-result');
+
+  const beat = async (ms) => {
+    // small slices so a click can skip ahead
+    const step = 60;
+    for (let t = 0; t < ms && !ui.skipRoll; t += step) await sleep(step);
+  };
+
+  // pre-roll beat: read the target
+  await beat(850);
+  // tumble
+  for (let i = 0; i < 11 && !ui.skipRoll; i++) {
+    setDie(d1, 1 + Math.floor(Math.random() * 6));
+    setDie(d2, 1 + Math.floor(Math.random() * 6));
+    await sleep(65 + i * 8);
+  }
+  setDie(d1, r.a);
+  setDie(d2, r.b);
+  d1.classList.remove('rolling');
+  d2.classList.remove('rolling');
+  const mod = r.mod >= 0 ? `+${r.mod}` : `${r.mod}`;
+  resultEl.innerHTML = `${r.a} + ${r.b} ${mod} = <b>${r.total}</b>
+    <span class="${r.success ? 'ok' : 'no'}">${r.success ? '✓ SUCCESS' : '✗ FAIL'}</span>`;
+  resultEl.classList.add('shown', r.success ? 'ok' : 'no');
+  await beat(1100);
+  o.classList.remove('visible');
+}
+
+function setDie(el, v) {
+  el.innerHTML = (PIPS[v] || [])
+    .map(([x, y]) => `<span class="pip" style="left:${x}%;top:${y}%"></span>`)
+    .join('');
+}
+
+$('dice-overlay').addEventListener('click', () => {
+  ui.skipRoll = true;
+});
+
+// ---------------------------------------------------------------------------
 // Human interaction
 
-function handleTileClick(x, y) {
+async function handleTileClick(x, y) {
   if (!isHumanTurn() || state.over) return;
   if (ui.phase === 'idle' && !state.moved) {
-    const res = doMove(state, dice, x, y);
-    if (res.ok) {
-      renderAll();
-      maybeAutoEnd();
-    }
+    const selected = activePlayerId(state);
+    if (!reachable(state, selected).has(`${x},${y}`)) return;
+    pushHistory();
+    ui.phase = 'busy';
+    await diceAction(() => doMove(state, dice, x, y));
+    ui.phase = 'idle';
+    renderAll();
   } else if (ui.phase === 'aim-pass') {
-    const res = doPass(state, dice, x, y);
-    if (res.ok) {
-      ui.phase = 'idle';
-      renderAll();
-      flashRoll(res.roll, res.roll.success ? 'Pass: on target!' : 'Pass: astray!');
-      maybeAutoEnd();
-    }
+    pushHistory();
+    ui.phase = 'busy';
+    const res = await diceAction(() => doPass(state, dice, x, y));
+    if (!res.ok) hist.undo.pop(); // invalid target: nothing happened
+    ui.phase = 'idle';
+    renderAll();
   }
 }
 
 function handlePlayerClick(pid) {
-  // Tapping any piece: peek at its stats in the chip; tapping a tile under
-  // it still moves via the tile handler when relevant.
   const p = getPlayer(state, pid);
-  const active = !state.over && activePlayerId(state) === pid;
-  if (active) return; // chip already shows the mover
-  const chip = $('mover-chip');
-  chip.innerHTML = `
-    <span class="chip-badge team-${p.team}">#${p.num}</span>
-    <span class="chip-name">${p.name} (${p.role})</span>
-    <span class="chip-stats">SPD ${p.spd} · SHO +${p.sho} · PAS +${p.pas} · CTL +${p.ctl}</span>
-    <span class="chip-hint">tap elsewhere to dismiss</span>`;
-  setTimeout(() => renderMoverChip(state.over ? null : activePlayerId(state)), 2500);
+  if (!isHumanTurn() || state.over || ui.aiTurn) {
+    // spectating / opponent's turn: peek at stats
+    ui.inspectId = ui.inspectId === pid ? null : pid;
+    renderAll();
+    return;
+  }
+  if (ui.phase !== 'idle') return;
+  const selected = activePlayerId(state);
+  if (p.team === state.activeTeam) {
+    if (pid === selected) {
+      ui.playerView = ui.playerView === 1 ? 2 : ui.playerView === 2 ? 0 : 1;
+      ui.inspectId = null;
+    } else if (!state.moved && !state.actionUsed) {
+      selectMover(state, pid);
+      ui.playerView = 1;
+      ui.inspectId = null;
+    } else {
+      ui.inspectId = ui.inspectId === pid ? null : pid;
+    }
+  } else {
+    ui.inspectId = ui.inspectId === pid ? null : pid;
+  }
+  renderAll();
+}
+
+async function handleRingAction(key) {
+  if (!isHumanTurn() || state.over || ui.phase !== 'idle') return;
+  if (key === 'pass') {
+    ui.phase = 'aim-pass';
+    renderAll();
+  } else if (key === 'shoot') {
+    ui.phase = 'aim-shot';
+    renderAll();
+  } else if (key === 'steal') {
+    pushHistory();
+    ui.phase = 'busy';
+    renderAll();
+    await diceAction(() => doSteal(state, dice));
+    ui.phase = 'idle';
+    renderAll();
+  }
 }
 
 async function handleGoalCell(cell, side) {
@@ -348,18 +566,15 @@ async function handleGoalCell(cell, side) {
   renderAll();
   const shooterTeam = state.activeTeam;
   let dive;
-  if (ui.mode === 'pve') {
-    dive = aiPickDive(state, dice);
-  } else {
-    dive = await pvpDivePick(shooterTeam);
-  }
+  if (ui.mode === 'pve') dive = aiPickDive(state, dice);
+  else dive = await pvpDivePick(shooterTeam);
   await resolveShot(cell, dive);
 }
 
 async function resolveShot(aim, dive) {
   const mySession = ui.session;
-  const res = doShoot(state, dice, aim, dive);
-  renderAll();
+  const res = await diceAction(() => doShoot(state, dice, aim, dive));
+  if (ui.session !== mySession) return;
   if (res.outcome === 'goal') await banner('⚽ GOAL!!!', 'goal', 1800);
   else if (res.outcome === 'save') await banner('🧤 SAVED!', 'save');
   else if (res.outcome === 'rebound') await banner('💥 Off the frame!', 'save');
@@ -368,7 +583,6 @@ async function resolveShot(aim, dive) {
   beginTurn();
 }
 
-// PvP blind dive: hand the device over, defender picks, then resolve.
 function pvpDivePick(shooterTeam) {
   const defender = shooterTeam === 'home' ? 'away' : 'home';
   return new Promise((resolve) => {
@@ -399,48 +613,25 @@ function buildDiveGrid(grid, onPick) {
   }
 }
 
-function flashRoll(roll, text) {
-  banner(
-    `${DIE[roll.a]}${DIE[roll.b]} ${roll.total} vs ${roll.tn} — ${text}`,
-    roll.success ? 'save' : '',
-    1100
-  );
-}
-
-function maybeAutoEnd() {
-  // If the mover has moved and has no possible action, don't auto-end —
-  // let the player read the board. (Deliberate: End Turn is one tap.)
-}
-
 // Buttons
-$('btn-pass').addEventListener('click', () => {
-  if (!canPass(state)) return;
-  ui.phase = 'aim-pass';
-  renderAll();
-});
-$('btn-shoot').addEventListener('click', () => {
-  if (!canShoot(state)) return;
-  ui.phase = 'aim-shot';
-  renderAll();
-});
 $('btn-cancel').addEventListener('click', () => {
   ui.phase = 'idle';
   renderAll();
 });
-$('btn-steal').addEventListener('click', () => {
-  if (!canSteal(state)) return;
-  const res = doSteal(state, dice);
-  renderAll();
-  flashRoll(res.roll, res.roll.success ? 'Ball WON!' : 'Held off!');
-});
+$('btn-undo').addEventListener('click', doUndo);
+$('btn-redo').addEventListener('click', doRedo);
 $('btn-end').addEventListener('click', () => {
-  if (!isHumanTurn() || state.over) return;
+  if (!isHumanTurn() || state.over || ui.phase === 'busy') return;
   endTurn(state, dice);
   beginTurn();
 });
 
 // ---------------------------------------------------------------------------
 // AI turn
+
+async function pauseGate(mySession) {
+  while (ui.paused && ui.session === mySession) await rawSleep(150);
+}
 
 async function runAiTurn() {
   ui.phase = 'busy';
@@ -449,6 +640,7 @@ async function runAiTurn() {
   const stale = () => ui.session !== mySession;
   const turnBefore = state.turn;
   await sleep(600);
+  await pauseGate(mySession);
   if (stale()) return;
   const f = aiChooseFormation(state);
   if (f) {
@@ -459,23 +651,23 @@ async function runAiTurn() {
   }
   const mv = aiChooseMove(state, dice);
   if (mv) {
-    doMove(state, dice, mv.x, mv.y);
+    await diceAction(() => doMove(state, dice, mv.x, mv.y));
     renderAll();
     await sleep(650);
+    await pauseGate(mySession);
     if (stale()) return;
   }
   if (!state.over && !state.actionUsed && state.turn === turnBefore) {
     const act = aiChooseAction(state, dice);
     if (act.type === 'steal') {
-      const res = doSteal(state, dice);
+      await diceAction(() => doSteal(state, dice));
       renderAll();
-      flashRoll(res.roll, res.roll.success ? 'Steal!' : 'Held off');
-      await sleep(900);
+      await sleep(500);
       if (stale()) return;
     } else if (act.type === 'pass') {
-      const res = doPass(state, dice, act.x, act.y);
+      await diceAction(() => doPass(state, dice, act.x, act.y));
       renderAll();
-      await sleep(700);
+      await sleep(600);
       if (stale()) return;
     } else if (act.type === 'shoot') {
       let dive;
@@ -496,9 +688,10 @@ async function runAiTurn() {
       }
       if (stale()) return;
       await resolveShot(act.aim, dive);
-      return; // resolveShot continues the loop via beginTurn
+      return; // resolveShot continues via beginTurn
     }
   }
+  await pauseGate(mySession);
   if (stale()) return;
   if (!state.over && state.turn === turnBefore) endTurn(state, dice);
   beginTurn();
@@ -538,14 +731,15 @@ $('btn-speed').addEventListener('click', () => {
   ui.speed = ui.speed >= 4 ? 1 : ui.speed * 2;
   $('btn-speed').textContent = `${ui.speed}×`;
 });
-$('btn-help').addEventListener('click', () => {
-  $('help').classList.add('visible');
+$('btn-pause').addEventListener('click', () => {
+  ui.paused = !ui.paused;
+  $('btn-pause').textContent = ui.paused ? '▶' : '⏸';
 });
-$('help-close').addEventListener('click', () => {
-  $('help').classList.remove('visible');
-});
+$('btn-help').addEventListener('click', () => $('help').classList.add('visible'));
+$('help-close').addEventListener('click', () => $('help').classList.remove('visible'));
 $('btn-quit').addEventListener('click', () => {
   ui.session++; // abort any in-flight AI loop
+  ui.paused = false;
   show('screen-menu');
 });
 

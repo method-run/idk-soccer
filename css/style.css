@@ -5,7 +5,9 @@
   --text: #e8f0e9;
   --muted: #9db3a2;
   --home: #e0453a;
+  --home-dark: #47201d;
   --away: #3a6fe0;
+  --away-dark: #1c2947;
   --accent: #f2c14e;
   --grass-a: #2e7d3a;
   --grass-b: #2a7335;
@@ -46,25 +48,68 @@ button.primary { background: var(--accent); color: #201700; border-color: var(--
 .menu-btn { font-size: 1.1rem; padding: 14px; }
 .menu-btn-quiet { background: transparent; }
 
-/* ---------------- Match layout ---------------- */
-#screen-match { height: 100%; }
-
+/* ---------------- Topbar: clock + progress ---------------- */
 #topbar {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 8px; padding: 8px 12px; background: var(--panel);
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 12px; background: var(--panel);
 }
-.team-score { display: flex; gap: 8px; align-items: baseline; font-weight: 600; }
-.team-score b { font-size: 1.4rem; }
-.team-home span, .team-home b { color: var(--home); }
-.team-away span, .team-away b { color: var(--away); }
-#turninfo { display: flex; flex-direction: column; align-items: center; font-size: 0.8rem; color: var(--muted); }
-#turn-team { font-weight: 700; }
-#btn-quit { padding: 4px 10px; border-radius: 8px; }
+#clock { display: flex; align-items: baseline; gap: 8px; min-width: 110px; }
+#clock b { font-size: 1.3rem; }
+#clock span { color: var(--muted); font-size: 0.8rem; }
+#progress {
+  position: relative; flex: 1; height: 8px; border-radius: 4px;
+  background: #0a130c; overflow: hidden;
+}
+#progress-fill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, #3f8f4f, var(--accent));
+  transition: width 0.4s ease;
+}
+#progress-mid {
+  position: absolute; left: 50%; top: 0; bottom: 0; width: 2px;
+  background: rgba(255, 255, 255, 0.4);
+}
+#turn-label { color: var(--muted); font-size: 0.75rem; min-width: 74px; text-align: right; }
+#btn-quit, #btn-speed, #btn-pause { padding: 4px 10px; border-radius: 8px; }
+
+/* ---------------- Match body: side panels + board ---------------- */
+#match-body {
+  flex: 1; min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(120px, 158px) 1fr minmax(120px, 158px);
+  gap: 6px; padding: 6px;
+}
+
+.team-panel {
+  border-radius: 12px; padding: 10px; display: flex; flex-direction: column;
+  gap: 6px; align-items: center; text-align: center;
+  border: 2px solid transparent; transition: border-color 0.3s ease;
+}
+.team-panel-home { background: var(--home-dark); }
+.team-panel-away { background: var(--away-dark); }
+.team-panel.tp-active { border-color: var(--accent); }
+.tp-name { font-weight: 800; font-size: 1.05rem; }
+.team-panel-home .tp-name { color: var(--home); }
+.team-panel-away .tp-name { color: var(--away); }
+.tp-score { font-size: 2.1rem; font-weight: 900; line-height: 1; }
+.tp-controller { color: var(--muted); font-size: 0.72rem; }
+.tp-active .tp-controller { color: var(--accent); }
+
+.tp-card {
+  width: 100%; display: flex; flex-direction: column; align-items: center;
+  gap: 3px; padding: 8px 4px; font-size: 0.72rem; line-height: 1.15;
+  background: rgba(0, 0, 0, 0.28); border-color: rgba(255, 255, 255, 0.18);
+  margin-top: auto;
+}
+.tp-card:not(:disabled):hover { border-color: var(--accent); }
+.tp-card b { font-size: 0.95rem; }
+.tp-card span { color: var(--muted); }
+.tp-card em { color: var(--accent); font-style: normal; font-size: 0.68rem; }
+.tp-card:disabled { opacity: 0.8; }
 
 #board-wrap {
-  position: relative; flex: 1; min-height: 0;
+  position: relative; min-width: 0; min-height: 0;
   display: flex; align-items: center; justify-content: center;
-  padding: 4px;
 }
 #board { width: 100%; height: 100%; }
 
@@ -85,7 +130,7 @@ button.primary { background: var(--accent); color: #201700; border-color: var(--
   cursor: pointer;
   animation: pulse 1.2s ease-in-out infinite;
 }
-.goal-cell-tn { fill: #ffe9b0; font-size: 15px; font-weight: 700; text-anchor: middle; pointer-events: none; }
+.goal-cell-tn { fill: #ffe9b0; font-size: 12px; font-weight: 700; text-anchor: middle; pointer-events: none; }
 
 .piece { cursor: pointer; transition: transform 0.45s ease; }
 .piece .disc { stroke: rgba(0, 0, 0, 0.55); stroke-width: 2; }
@@ -120,6 +165,32 @@ button.primary { background: var(--accent); color: #201700; border-color: var(--
 .target-ghost.team-home { fill: none; stroke: var(--home); stroke-width: 2; }
 .target-ghost.team-away { fill: none; stroke: var(--away); stroke-width: 2; }
 
+.drift-arrow { stroke-width: 3; opacity: 0.85; pointer-events: none; }
+.drift-arrow.team-home { stroke: #ffb3ad; }
+.drift-arrow.team-away { stroke: #a9c4ff; }
+.arrowhead { fill: #fff; }
+
+/* action ring */
+.ring-item { cursor: pointer; }
+.ring-item rect {
+  fill: rgba(10, 20, 12, 0.92); stroke: var(--accent); stroke-width: 1.5;
+}
+.ring-item:hover rect { fill: rgba(45, 38, 12, 0.95); }
+.ring-item.ring-disabled rect { stroke: #555; }
+.ring-label {
+  fill: var(--text); font-size: 12px; font-weight: 800; text-anchor: middle;
+  pointer-events: none;
+}
+.ring-sub { fill: var(--accent); font-size: 9px; text-anchor: middle; pointer-events: none; }
+
+/* stats card */
+.stats-box { pointer-events: none; }
+.stats-bg { fill: rgba(8, 16, 10, 0.94); stroke: rgba(255,255,255,0.35); stroke-width: 1; }
+.stats-box.team-home .stats-head { fill: var(--home); }
+.stats-box.team-away .stats-head { fill: var(--away); }
+.stats-name { fill: #fff; font-size: 11px; font-weight: 800; }
+.stats-line { fill: var(--text); font-size: 12px; }
+
 @keyframes pulse { 50% { opacity: 0.55; } }
 
 /* ---------------- Banner ---------------- */
@@ -136,6 +207,43 @@ button.primary { background: var(--accent); color: #201700; border-color: var(--
 #banner.team-home { color: var(--home); border-color: var(--home); }
 #banner.team-away { color: var(--away); border-color: var(--away); }
 
+/* ---------------- Dice cinematic overlay ---------------- */
+#dice-overlay {
+  position: absolute; inset: 0; display: none;
+  align-items: center; justify-content: center; z-index: 6;
+  background: rgba(5, 10, 6, 0.45);
+}
+#dice-overlay.visible { display: flex; }
+.do-box {
+  background: rgba(8, 16, 10, 0.96); border-radius: 18px; padding: 18px 30px;
+  text-align: center; border-top: 5px solid transparent; min-width: 250px;
+  animation: tray-in 0.2s ease;
+}
+.do-box.team-home { border-top-color: var(--home); }
+.do-box.team-away { border-top-color: var(--away); }
+.do-title { font-weight: 900; font-size: 1.15rem; letter-spacing: 0.04em; }
+.do-target { font-size: 1rem; color: var(--muted); margin-top: 4px; }
+.do-target b { font-size: 1.9rem; color: var(--accent); }
+.do-math { font-size: 0.75rem; color: var(--muted); }
+.do-opp { margin-top: 6px; font-size: 0.8rem; color: var(--muted);
+  display: flex; gap: 5px; align-items: center; justify-content: center; }
+.do-opp .die { width: 18px; height: 18px; }
+.do-dice { display: flex; gap: 12px; justify-content: center; margin: 14px 0 4px; }
+.do-dice .die { width: 44px; height: 44px; border-radius: 9px; }
+.do-dice .die .pip { width: 8px; height: 8px; }
+.do-dice .die.rolling { animation: tumble 0.25s linear infinite; }
+@keyframes tumble {
+  0% { transform: rotate(-7deg) translateY(0); }
+  50% { transform: rotate(6deg) translateY(-3px); }
+  100% { transform: rotate(-7deg) translateY(0); }
+}
+.do-mod { font-size: 0.85rem; color: var(--text); }
+.do-result { min-height: 30px; font-size: 1.1rem; margin-top: 6px; opacity: 0; }
+.do-result.shown { opacity: 1; transition: opacity 0.15s ease; }
+.do-result b { font-size: 1.5rem; }
+.do-result .ok { color: #7fe09a; font-weight: 900; }
+.do-result .no { color: #e08a7f; font-weight: 900; }
+
 /* ---------------- Bottom panel ---------------- */
 #panel {
   background: var(--panel);
@@ -145,69 +253,19 @@ button.primary { background: var(--accent); color: #201700; border-color: var(--
 
 #mover-chip {
   display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
-  min-height: 22px; font-size: 0.85rem;
+  min-height: 20px; font-size: 0.85rem;
 }
 .chip-badge { font-weight: 800; padding: 1px 7px; border-radius: 999px; color: #fff; }
 .chip-badge.team-home { background: var(--home); }
 .chip-badge.team-away { background: var(--away); }
 .chip-name { font-weight: 700; }
-.chip-stats { color: var(--muted); }
-.chip-hint { color: var(--accent); font-size: 0.78rem; width: 100%; }
+.chip-hint { color: var(--accent); font-size: 0.78rem; }
 
 #actions { display: flex; gap: 8px; }
 #actions button { flex: 1; padding: 10px 4px; font-weight: 600; }
 
-#cards { display: flex; gap: 6px; }
-.card {
-  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 6px 2px; font-size: 0.72rem; line-height: 1.1; border-radius: 8px;
-}
-.card b { font-size: 0.95rem; }
-.card span { color: var(--muted); }
-.card-active { border-color: var(--accent); background: #2b2413; }
-.card-active span { color: var(--accent); }
-
-.mini-pitch { width: 100%; max-width: 78px; }
-.mini-field { fill: #1c4a26; stroke: rgba(255, 255, 255, 0.45); stroke-width: 1; }
-.mini-line { stroke: rgba(255, 255, 255, 0.35); stroke-width: 1; }
-.card-home .mini-dot { fill: var(--home); }
-.card-away .mini-dot { fill: var(--away); }
-.mini-gk { fill: var(--accent); }
-
-/* ---------------- Dice tray ---------------- */
-#dice-tray {
-  position: absolute; top: 8px; left: 8px; z-index: 4;
-  display: flex; flex-direction: column; gap: 6px; pointer-events: none;
-}
-.tray-roll {
-  display: flex; align-items: center; gap: 7px;
-  background: rgba(8, 16, 10, 0.88); border-radius: 10px; padding: 6px 10px;
-  border-left: 4px solid transparent; font-size: 0.85rem;
-  animation: tray-in 0.25s ease;
-}
-.tray-roll.team-home { border-left-color: var(--home); }
-.tray-roll.team-away { border-left-color: var(--away); }
-.tray-roll:nth-child(2) { opacity: 0.6; transform: scale(0.92); transform-origin: top left; }
-.tray-roll:nth-child(3) { opacity: 0.35; transform: scale(0.85); transform-origin: top left; }
-@keyframes tray-in { from { opacity: 0; transform: translateY(-6px); } }
-.tray-label { font-weight: 700; min-width: 62px; }
-.tray-math { color: var(--muted); }
-.tray-math b { color: var(--text); font-size: 1rem; }
-.tray-result { font-weight: 900; font-size: 1rem; }
-.tray-result.ok { color: #7fe09a; }
-.tray-result.no { color: #e08a7f; }
-
-.die {
-  position: relative; display: inline-block; width: 24px; height: 24px;
-  background: #f5f2ea; border-radius: 5px; box-shadow: inset 0 -2px 0 rgba(0,0,0,0.2);
-}
-.pip {
-  position: absolute; width: 5px; height: 5px; border-radius: 50%;
-  background: #222; transform: translate(-50%, -50%);
-}
-
 #log {
-  height: 74px; overflow-y: auto; font-size: 0.75rem; line-height: 1.45;
+  height: 64px; overflow-y: auto; font-size: 0.75rem; line-height: 1.45;
   background: var(--bg); border-radius: 8px; padding: 6px 8px; color: var(--muted);
 }
 .log-entry.team-home { border-left: 3px solid var(--home); padding-left: 6px; }
@@ -217,6 +275,38 @@ button.primary { background: var(--accent); color: #201700; border-color: var(--
 .log-save { color: #9fe0b0; }
 .log-dice { font-size: 0.95rem; }
 
+/* ---------------- Dice tray (compact history) ---------------- */
+#dice-tray {
+  position: absolute; top: 8px; left: 8px; z-index: 4;
+  display: flex; flex-direction: column; gap: 6px; pointer-events: none;
+}
+.tray-roll {
+  display: flex; align-items: center; gap: 7px;
+  background: rgba(8, 16, 10, 0.88); border-radius: 10px; padding: 5px 9px;
+  border-left: 4px solid transparent; font-size: 0.8rem;
+  animation: tray-in 0.25s ease;
+}
+.tray-roll.team-home { border-left-color: var(--home); }
+.tray-roll.team-away { border-left-color: var(--away); }
+.tray-roll:nth-child(2) { opacity: 0.6; transform: scale(0.92); transform-origin: top left; }
+.tray-roll:nth-child(3) { opacity: 0.35; transform: scale(0.85); transform-origin: top left; }
+@keyframes tray-in { from { opacity: 0; transform: translateY(-6px); } }
+.tray-label { font-weight: 700; min-width: 58px; }
+.tray-math { color: var(--muted); }
+.tray-math b { color: var(--text); font-size: 0.95rem; }
+.tray-result { font-weight: 900; }
+.tray-result.ok { color: #7fe09a; }
+.tray-result.no { color: #e08a7f; }
+
+.die {
+  position: relative; display: inline-block; width: 22px; height: 22px;
+  background: #f5f2ea; border-radius: 5px; box-shadow: inset 0 -2px 0 rgba(0,0,0,0.2);
+}
+.pip {
+  position: absolute; width: 5px; height: 5px; border-radius: 50%;
+  background: #222; transform: translate(-50%, -50%);
+}
+
 /* ---------------- Modals ---------------- */
 .modal {
   position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
@@ -225,7 +315,7 @@ button.primary { background: var(--accent); color: #201700; border-color: var(--
 .modal.visible { display: flex; }
 .modal-box {
   background: var(--panel-2); border: 1px solid #3a5c44; border-radius: 16px;
-  padding: 20px; width: min(430px, 94vw); max-height: 86vh; overflow-y: auto;
+  padding: 20px; width: min(460px, 94vw); max-height: 86vh; overflow-y: auto;
 }
 .modal-box h2 { margin-bottom: 8px; }
 .modal-box h2.team-home { color: var(--home); }
@@ -237,6 +327,25 @@ button.primary { background: var(--accent); color: #201700; border-color: var(--
 .dive-cell { padding: 18px 6px; font-weight: 700; background: #10240f; border-color: #fff3; }
 .dive-cell:active { background: var(--accent); color: #201700; }
 
+.formation-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 12px; }
+.card {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 8px 4px; font-size: 0.72rem; line-height: 1.1; border-radius: 8px;
+}
+.card b { font-size: 0.95rem; }
+.card span { color: var(--muted); }
+.card-active { border-color: var(--accent); background: #2b2413; }
+.card-active span { color: var(--accent); }
+
+.mini-pitch { width: 100%; max-width: 84px; }
+.mini-field { fill: #1c4a26; stroke: rgba(255, 255, 255, 0.45); stroke-width: 1; }
+.mini-line { stroke: rgba(255, 255, 255, 0.35); stroke-width: 1; }
+.card-home .mini-dot, .team-panel-home .mini-dot { fill: var(--home); }
+.card-away .mini-dot, .team-panel-away .mini-dot { fill: var(--away); }
+.formation-grid.card-home .mini-dot { fill: var(--home); }
+.formation-grid.card-away .mini-dot { fill: var(--away); }
+.mini-gk { fill: var(--accent); }
+
 .overlay-buttons { display: flex; gap: 10px; }
 .overlay-buttons button { flex: 1; padding: 12px; }
 
@@ -245,11 +354,14 @@ button.primary { background: var(--accent); color: #201700; border-color: var(--
 .help-box .help-paper { margin-top: 12px; }
 #help-close { width: 100%; margin-top: 8px; }
 
-/* Landscape: board left, panel right */
-@media (orientation: landscape) and (max-height: 620px) {
-  #screen-match.visible { flex-direction: row; flex-wrap: wrap; }
-  #topbar { width: 100%; }
-  #board-wrap { flex: 1 1 55%; height: calc(100% - 48px); }
-  #panel { flex: 1 1 40%; max-width: 360px; height: calc(100% - 48px); overflow-y: auto; }
-  #log { flex: 1; height: auto; min-height: 60px; }
+/* Narrow screens: team panels become a row above the board */
+@media (max-width: 760px) {
+  #match-body {
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto 1fr;
+  }
+  .team-panel { flex-direction: row; flex-wrap: wrap; justify-content: space-between; padding: 6px 10px; }
+  .team-panel .tp-card { width: auto; margin-top: 0; }
+  .team-panel .mini-pitch { max-width: 56px; }
+  #board-wrap { grid-column: 1 / -1; }
 }

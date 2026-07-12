@@ -26,41 +26,44 @@
   <!-- MATCH -->
   <div id="screen-match" class="screen">
     <header id="topbar">
-      <div class="team-score team-home">
-        <span id="name-home">Reds</span><b id="score-home">0</b>
+      <div id="clock">
+        <b id="clock-min">0′</b>
+        <span id="clock-half">1st Half</span>
       </div>
-      <div id="turninfo">
-        <span id="turn-label">Turn 1/40</span>
-        <span id="turn-team"></span>
+      <div id="progress">
+        <div id="progress-fill"></div>
+        <div id="progress-mid"></div>
       </div>
-      <div class="team-score team-away">
-        <b id="score-away">0</b><span id="name-away">Blues</span>
-      </div>
+      <span id="turn-label"></span>
+      <button id="btn-pause" title="Pause" hidden>⏸</button>
       <button id="btn-speed" title="Playback speed" hidden>1×</button>
       <button id="btn-quit" title="Back to menu">✕</button>
     </header>
 
-    <div id="board-wrap">
-      <svg id="board"></svg>
-      <div id="dice-tray"></div>
-      <div id="banner"></div>
+    <div id="match-body">
+      <aside id="panel-home" class="team-panel team-panel-home"></aside>
+      <div id="board-wrap">
+        <svg id="board"></svg>
+        <div id="dice-tray"></div>
+        <div id="banner"></div>
+        <div id="dice-overlay"></div>
+      </div>
+      <aside id="panel-away" class="team-panel team-panel-away"></aside>
     </div>
 
     <footer id="panel">
       <div id="mover-chip"></div>
       <div id="actions">
-        <button id="btn-pass">Pass</button>
-        <button id="btn-shoot">Shoot</button>
-        <button id="btn-steal">Steal</button>
         <button id="btn-cancel" hidden>Cancel</button>
+        <button id="btn-undo" title="Undo">↩ Undo</button>
+        <button id="btn-redo" title="Redo">↪ Redo</button>
         <button id="btn-end" class="primary">End Turn</button>
       </div>
-      <div id="cards"></div>
       <div id="log"></div>
     </footer>
   </div>
 
-  <!-- GENERIC OVERLAY (dive picks, full time) -->
+  <!-- GENERIC OVERLAY (dive picks, formation picker, full time) -->
   <div id="overlay" class="modal">
     <div class="modal-box" id="overlay-content"></div>
   </div>
@@ -69,26 +72,34 @@
   <div id="help" class="modal">
     <div class="modal-box help-box">
       <h2>How to play</h2>
-      <p><b>Win:</b> most goals after 50 turns (25 each).</p>
+      <p><b>Win:</b> most goals after 50 turns (25 each). The clock maps
+      turns onto 90 minutes.</p>
       <h3>Your turn</h3>
       <ol>
-        <li><b>Formation (optional, once/turn):</b> tap a card. At the end of
-        your turn every uncontrolled teammate drifts 1 square toward its slot
-        (diamond markers). Slots slide sideways toward the ball.</li>
-        <li><b>Your mover is forced:</b> the teammate holding the ball, or
-        your closest to it (glowing ring). Move up to SPD squares — only
-        SPD−2 while dribbling.</li>
-        <li><b>One ball action:</b> pass, shoot, or steal.</li>
+        <li><b>Formation (optional, once/turn):</b> tap your team panel's
+        card. Until you end your turn, arrows preview every teammate's
+        auto-move (1 square toward its slot, taken when your turn ends).
+        Slots slide sideways toward the ball.</li>
+        <li><b>Pick a footballer:</b> defaults to the ball carrier (or your
+        closest player to the ball). Tap another teammate to control them
+        instead — until you move or act, then you're committed.
+        Move up to SPD squares; only SPD−2 while dribbling.</li>
+        <li><b>One ball action:</b> tap your selected player to cycle
+        views — action ring (with odds) → stats → minimal. Ring actions:
+        pass, shoot, steal.</li>
       </ol>
+      <p>Undo/redo anything until you end your turn (shots end it
+      immediately). Repeating an identical action after undo re-rolls the
+      identical dice — no re-roll fishing.</p>
       <h3>Dice (all rolls are 2d6 + stat ≥ target)</h3>
       <ul>
         <li><b>Pass</b> (PAS): target 6, +1 per 3 squares of distance. Miss =
         ball scatters 1–2 squares. Anyone standing where it lands takes it.</li>
         <li><b>Shoot</b> (SHO): target 8, +1 per 2 squares beyond 2, +1 for
-        corner columns. Rolling doubles on an accurate shot = unstoppable.
-        Otherwise the keeper secretly dives at one of the 6 goal cells:
-        exact cell = save, right column = save on 2d6+CTL ≥ 8, wrong way =
-        goal. Miss by 1 = loose rebound.</li>
+        corner cells. Doubles on an accurate shot = unstoppable. Otherwise
+        the keeper secretly dives at one of the 6 goal cells: exact cell =
+        save, right row = save on 2d6+CTL ≥ 8, wrong way = goal.
+        Miss by 1 = loose rebound.</li>
         <li><b>Loose ball:</b> land on it. Free if no opponent is adjacent;
         otherwise opposed 2d6+CTL (tie = you).</li>
         <li><b>Steal</b> (CTL): stand adjacent to the carrier, roll 2d6+CTL

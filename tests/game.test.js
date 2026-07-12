@@ -6,6 +6,7 @@ import {
   newMatch, activePlayerId, getPlayer, carrier, reachable, moveRange,
   doMove, doPass, doSteal, doShoot, canSteal, canShoot, setFormation,
   endTurn, formationTargets, cheb, occupantAt, passTN, shotTN, stealTN,
+  selectMover, driftPreview,
 } from '../js/game.js';
 import {
   aiChooseFormation, aiChooseMove, aiChooseAction, aiPickDive, p2d6,
@@ -355,4 +356,58 @@ test('AI vs AI: 20 seeded matches complete legally', () => {
   assert.ok(totalShots >= 20, `expected some shots across matches (got ${totalShots})`);
   assert.ok(totalGoals >= 5, `expected some goals across matches (got ${totalGoals})`);
   assert.ok(totalGoals <= 160, `goal totals sane (got ${totalGoals})`);
+});
+
+test('selectMover: free until committed, locked after moving', () => {
+  const s = newMatch();
+  const dice = stubDice([3, 3]);
+  const kicker = carrier(s);
+  const other = s.players.find((p) => p.team === 'home' && p.id !== kicker.id && p.role === 'DF');
+  assert.ok(selectMover(s, other.id).ok);
+  assert.equal(activePlayerId(s), other.id);
+  assert.ok(!selectMover(s, 'away-2').ok, 'cannot select an opponent');
+  // move the selected player, then selection is locked
+  const tiles = [...reachable(s, other.id).keys()].filter(
+    (k) => k !== `${other.x},${other.y}`
+  );
+  const [x, y] = tiles[0].split(',').map(Number);
+  assert.ok(doMove(s, dice, x, y).ok);
+  assert.ok(!selectMover(s, kicker.id).ok, 'locked after moving');
+  assert.equal(activePlayerId(s), other.id);
+  // reset on end of turn
+  endTurn(s, dice);
+  assert.equal(s.moverId, null);
+});
+
+test('driftPreview matches what drift applies', () => {
+  const s = newMatch();
+  const dice = stubDice([3, 3]);
+  setFormation(s, 'attack');
+  const preview = driftPreview(s);
+  assert.ok(preview.length > 0, 'somebody should want to move');
+  endTurn(s, dice); // applies drift
+  for (const step of preview) {
+    const p = getPlayer(s, step.id);
+    assert.deepEqual([p.x, p.y], step.to, `${step.id} followed the preview`);
+  }
+});
+
+test('dice state snapshot: same action after restore rolls the same', () => {
+  const dice = makeDice(42);
+  const snap = dice.getState();
+  const first = [dice.d6(), dice.d6(), dice.d6()];
+  dice.setState(snap);
+  const second = [dice.d6(), dice.d6(), dice.d6()];
+  assert.deepEqual(first, second);
+});
+
+test('rolls carry cinematic metadata (title, target math, modifier)', () => {
+  const s = newMatch();
+  const passer = carrier(s);
+  const dice = stubDice([6, 5]);
+  doPass(s, dice, passer.x, passer.y - 4);
+  const e = s.events.findLast((ev) => ev.type === 'pass');
+  assert.equal(e.roll.title, 'Pass');
+  assert.match(e.roll.tnLabel, /6 base/);
+  assert.match(e.roll.modLabel, /PAS \+\d/);
 });
