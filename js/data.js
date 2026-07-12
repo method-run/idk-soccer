@@ -73,6 +73,43 @@ export const FORMATIONS = [
   },
 ];
 
+// Draft pool: 4 keepers + 24 outfielders with names and distinct stat
+// spreads. Each team drafts 1 GK + 6 outfielders.
+export const PLAYER_POOL = [
+  // Keepers
+  { id: 'gk1', name: '"The Wall" Vold', role: 'GK', spd: 4, sho: 0, pas: 1, ctl: 3 },
+  { id: 'gk2', name: 'Kofi Mensah', role: 'GK', spd: 5, sho: 0, pas: 2, ctl: 2 },
+  { id: 'gk3', name: 'Yuri Balakin', role: 'GK', spd: 4, sho: 0, pas: 0, ctl: 3 },
+  { id: 'gk4', name: 'Tama Fifita', role: 'GK', spd: 4, sho: 1, pas: 1, ctl: 2 },
+  // Defenders
+  { id: 'd1', name: 'Rosa Quintana', role: 'DF', spd: 4, sho: 0, pas: 1, ctl: 3 },
+  { id: 'd2', name: 'Bruno Ferro', role: 'DF', spd: 4, sho: 0, pas: 2, ctl: 2 },
+  { id: 'd3', name: 'Sipho Dlamini', role: 'DF', spd: 5, sho: 0, pas: 1, ctl: 2 },
+  { id: 'd4', name: 'Greta Lindqvist', role: 'DF', spd: 4, sho: 1, pas: 1, ctl: 2 },
+  { id: 'd5', name: 'Marco Bellini', role: 'DF', spd: 5, sho: 0, pas: 0, ctl: 3 },
+  { id: 'd6', name: 'Ada Nwosu', role: 'DF', spd: 6, sho: 0, pas: 1, ctl: 1 },
+  { id: 'd7', name: 'Jonas Weiss', role: 'DF', spd: 4, sho: 1, pas: 2, ctl: 1 },
+  { id: 'd8', name: 'Carmen Vega', role: 'DF', spd: 5, sho: 0, pas: 2, ctl: 2 },
+  // Midfielders
+  { id: 'm1', name: 'Luka Petrič', role: 'MF', spd: 5, sho: 1, pas: 3, ctl: 1 },
+  { id: 'm2', name: 'Mei Tanaka', role: 'MF', spd: 5, sho: 1, pas: 2, ctl: 2 },
+  { id: 'm3', name: 'Diego Fuentes', role: 'MF', spd: 4, sho: 2, pas: 3, ctl: 0 },
+  { id: 'm4', name: 'Awa Diallo', role: 'MF', spd: 6, sho: 1, pas: 2, ctl: 1 },
+  { id: 'm5', name: 'Tomás Silva', role: 'MF', spd: 5, sho: 0, pas: 3, ctl: 2 },
+  { id: 'm6', name: 'Elif Kaya', role: 'MF', spd: 5, sho: 2, pas: 2, ctl: 1 },
+  { id: 'm7', name: 'Piotr Nowak', role: 'MF', spd: 4, sho: 1, pas: 3, ctl: 1 },
+  { id: 'm8', name: 'Nia Okafor', role: 'MF', spd: 6, sho: 2, pas: 1, ctl: 1 },
+  // Forwards
+  { id: 'f1', name: 'Zlatko Brkić', role: 'FW', spd: 5, sho: 3, pas: 0, ctl: 1 },
+  { id: 'f2', name: 'Kylie Marsh', role: 'FW', spd: 6, sho: 2, pas: 1, ctl: 1 },
+  { id: 'f3', name: 'Henrik Dahl', role: 'FW', spd: 4, sho: 3, pas: 1, ctl: 0 },
+  { id: 'f4', name: 'Fatou Ba', role: 'FW', spd: 6, sho: 3, pas: 0, ctl: 0 },
+  { id: 'f5', name: 'Rafael Costa', role: 'FW', spd: 5, sho: 2, pas: 2, ctl: 1 },
+  { id: 'f6', name: 'Ingrid Solberg', role: 'FW', spd: 5, sho: 3, pas: 1, ctl: 0 },
+  { id: 'f7', name: 'Marcus Bright', role: 'FW', spd: 6, sho: 1, pas: 2, ctl: 1 },
+  { id: 'f8', name: 'Chen Wei', role: 'FW', spd: 4, sho: 3, pas: 0, ctl: 2 },
+];
+
 export const TEAM_META = {
   home: { name: 'Reds', color: '#e0453a', dark: '#8f221b' },
   away: { name: 'Blues', color: '#3a6fe0', dark: '#1b3a8f' },

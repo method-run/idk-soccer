@@ -19,7 +19,44 @@
       <button id="btn-pve" class="menu-btn">vs Computer</button>
       <button id="btn-pvp" class="menu-btn">2 Players · same device</button>
       <button id="btn-cvc" class="menu-btn">Watch · CPU vs CPU</button>
+      <label class="menu-toggle">
+        <input type="checkbox" id="opt-draft" checked />
+        Draft teams first (pick 7 from a shared pool)
+      </label>
       <button id="btn-help" class="menu-btn menu-btn-quiet">How to play</button>
+    </div>
+  </div>
+
+  <!-- DRAFT -->
+  <div id="screen-draft" class="screen">
+    <header class="setup-head">
+      <div>
+        <h2 id="draft-title">Draft</h2>
+        <p id="draft-sub"></p>
+      </div>
+      <button id="draft-quit">✕</button>
+    </header>
+    <div id="draft-rosters">
+      <div id="draft-roster-home" class="draft-roster roster-home"></div>
+      <div id="draft-roster-away" class="draft-roster roster-away"></div>
+    </div>
+    <div id="draft-pool"></div>
+  </div>
+
+  <!-- POSITION ASSIGNMENT -->
+  <div id="screen-assign" class="screen">
+    <header class="setup-head">
+      <div>
+        <h2 id="assign-title">Set your lineup</h2>
+        <p>Tap two players to swap their formation slots. Slot order runs
+        defense → attack and applies to every formation card.</p>
+      </div>
+      <button id="assign-quit">✕</button>
+    </header>
+    <div id="assign-list"></div>
+    <div class="assign-buttons">
+      <button id="assign-auto">Auto-arrange</button>
+      <button id="assign-done" class="primary">Confirm lineup</button>
     </div>
   </div>
 
@@ -82,8 +119,14 @@
         when your turn ends). Slots slide sideways toward the ball.</li>
         <li><b>Pick a footballer:</b> defaults to the ball carrier (or your
         closest player to the ball). Tap another teammate to control them
-        instead — until you move or act, then you're committed.
-        Move up to SPD squares; only SPD−2 while dribbling.</li>
+        instead — until you move or act, then you're committed.</li>
+        <li><b>Movement is a step budget</b> (SPD squares; SPD−1 while
+        dribbling) spent in any number of segments, before and/or after your
+        action — zig-zag as you like. You can run <i>through</i> occupied
+        squares (never stop on them); dribbling through an opponent triggers
+        a challenge: opposed 2d6+CTL (+support, ties win). Lose by 1–2 and
+        the ball is knocked loose; lose by 3+ and the defender steals it
+        where they stand — your run still finishes.</li>
         <li><b>One ball action:</b> tap your selected player to cycle
         views — action ring (with odds) → stats → minimal. Ring actions:
         pass, shoot, steal.</li>

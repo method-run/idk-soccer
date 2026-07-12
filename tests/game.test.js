@@ -6,7 +6,7 @@ import {
   newMatch, activePlayerId, getPlayer, carrier, reachable, moveRange,
   doMove, doPass, doSteal, doShoot, canSteal, canShoot, setFormation,
   endTurn, formationTargets, cheb, occupantAt, passTN, shotTN, stealTN,
-  selectMover, driftPreview,
+  selectMover, driftPreview, stepsLeft,
 } from '../js/game.js';
 import {
   aiChooseFormation, aiChooseMove, aiChooseAction, aiPickDive, p2d6,
@@ -77,10 +77,10 @@ test('forced mover is the carrier, else closest to ball', () => {
   }
 });
 
-test('carrying the ball reduces movement range', () => {
+test('carrying the ball reduces movement range by 1', () => {
   const s = newMatch();
   const c = carrier(s);
-  assert.equal(moveRange(s, c), Math.max(1, c.spd - 2));
+  assert.equal(moveRange(s, c), Math.max(1, c.spd - 1));
   const other = s.players.find((p) => p.team === 'home' && p.id !== c.id);
   assert.equal(moveRange(s, other), other.spd);
 });
@@ -453,4 +453,129 @@ test('outnumbering: support modifier applies to steals', () => {
   const res = doSteal(s, dice);
   assert.equal(res.roll.mod, 3, 'CTL +2 plus +1 support');
   assert.ok(res.roll.success, '6+3=9 vs 8');
+});
+
+test('movement is a step budget spent in multiple segments', () => {
+  const s = newMatch();
+  clearBoard(s);
+  const dice = stubDice([3, 3]);
+  const me = getPlayer(s, 'home-2'); // spd 4
+  me.x = 4;
+  me.y = 9;
+  s.ball = { x: 8, y: 4, carrier: null }; // keep it away from everyone
+  assert.equal(activePlayerId(s), me.id);
+  assert.ok(doMove(s, dice, 4, 7).ok, 'first segment of 2');
+  assert.equal(stepsLeft(s), 2);
+  assert.ok(!doMove(s, dice, 4, 4).ok, '3 more steps is over budget');
+  assert.ok(doMove(s, dice, 4, 5).ok, 'second segment of 2');
+  assert.equal(stepsLeft(s), 0);
+  assert.ok(!doMove(s, dice, 4, 4).ok, 'budget exhausted');
+});
+
+test('you can keep moving after your action', () => {
+  const s = newMatch();
+  const passer = carrier(s);
+  const dice = stubDice([6, 5]);
+  assert.ok(doPass(s, dice, passer.x, passer.y - 3).ok);
+  assert.equal(s.actionUsed, true);
+  assert.ok(stepsLeft(s) > 0, 'steps remain after passing');
+  assert.ok(doMove(s, dice, passer.x, passer.y + 1).ok, 'post-action move works');
+});
+
+// Dribble-challenge scenarios: dribbler must cross a wall of defenders.
+function dribbleSetup() {
+  const s = newMatch();
+  clearBoard(s);
+  const me = getPlayer(s, 'home-6'); // ctl +1, spd 6 (5 while carrying)
+  me.x = 4;
+  me.y = 10;
+  for (const [id, x] of [['away-2', 3], ['away-3', 4], ['away-4', 5]]) {
+    const d = getPlayer(s, id);
+    d.x = x;
+    d.y = 9;
+  }
+  s.ball = { x: 4, y: 10, carrier: me.id };
+  return { s, me };
+}
+
+test('dribble challenge: winning (or tying) carries you through', () => {
+  const { s, me } = dribbleSetup();
+  // support is -1 (defenders back each other up): mine 4+3+1-1=7 vs 3+2+2=7
+  const dice = stubDice([4, 3, 3, 2]);
+  assert.ok(doMove(s, dice, 4, 8).ok);
+  assert.equal(s.ball.carrier, me.id, 'kept the ball');
+  assert.equal(s.ball.x, 4);
+  assert.equal(s.ball.y, 8);
+  const e = s.events.findLast((ev) => ev.type === 'dribble');
+  assert.ok(e, 'challenge was rolled');
+  assert.match(e.roll.modLabel, /support/);
+});
+
+test('dribble challenge: losing big is a clean steal at the defender', () => {
+  const { s, me } = dribbleSetup();
+  // mine 1+1+1-1=2 vs 3+3+2=8 -> deficit 6 -> stolen
+  const dice = stubDice([1, 1, 3, 3]);
+  assert.ok(doMove(s, dice, 4, 8).ok);
+  assert.equal(me.x, 4, 'runner still completes the move');
+  assert.equal(me.y, 8);
+  const thief = getPlayer(s, s.ball.carrier);
+  assert.equal(thief.team, 'away');
+  assert.equal(s.ball.x, thief.x, 'ball stays where the defender stands');
+  assert.equal(s.ball.y, thief.y);
+});
+
+test('dribble challenge: losing narrowly knocks the ball loose', () => {
+  const { s, me } = dribbleSetup();
+  // mine 3+3+1-1=6 vs 3+2+2=7 -> deficit 1 -> loose ball
+  const dice = stubDice([3, 3, 3, 2]);
+  assert.ok(doMove(s, dice, 4, 8).ok);
+  assert.equal(s.ball.carrier, null, 'nobody holds it');
+  assert.equal(me.y, 8, 'runner completes the move');
+  assertInvariants(s);
+});
+
+test('newMatch accepts drafted rosters and maps outfield order to slots', async () => {
+  const { PLAYER_POOL } = await import('../js/data.js');
+  const gk = PLAYER_POOL.find((p) => p.role === 'GK');
+  const out = PLAYER_POOL.filter((p) => p.role !== 'GK').slice(0, 6);
+  const gk2 = PLAYER_POOL.filter((p) => p.role === 'GK')[1];
+  const out2 = PLAYER_POOL.filter((p) => p.role !== 'GK').slice(6, 12);
+  const s = newMatch({
+    rosters: {
+      home: { gk, outfield: out },
+      away: { gk: gk2, outfield: out2 },
+    },
+  });
+  assert.equal(s.players.length, 14);
+  assert.equal(getPlayer(s, 'home-1').name, gk.name);
+  assert.equal(getPlayer(s, 'home-1').role, 'GK');
+  assert.equal(getPlayer(s, 'home-2').name, out[0].name);
+  assert.equal(getPlayer(s, 'away-7').name, out2[5].name);
+  // formation targets exist for every drafted player
+  const targets = formationTargets(s, 'home');
+  assert.equal(Object.keys(targets).length, 7);
+});
+
+test('shot rolls carry outcome verdicts (GOAL!/SAVED, not SUCCESS/FAIL)', () => {
+  const s = newMatch();
+  const striker = getPlayer(s, 'home-7');
+  const occ = occupantAt(s, 3, 2);
+  if (occ) { occ.x = 0; occ.y = 0; }
+  striker.x = 3;
+  striker.y = 2;
+  s.ball = { x: 3, y: 2, carrier: striker.id };
+  const dice = stubDice([4, 5]);
+  const res = doShoot(s, dice, { col: 1, high: false }, { col: 0, high: false });
+  assert.match(res.roll.verdict.text, /GOAL/);
+
+  // exact-dive save
+  const s2 = newMatch();
+  const st2 = getPlayer(s2, 'home-7');
+  const occ2 = occupantAt(s2, 3, 2);
+  if (occ2) { occ2.x = 0; occ2.y = 0; }
+  st2.x = 3;
+  st2.y = 2;
+  s2.ball = { x: 3, y: 2, carrier: st2.id };
+  const res2 = doShoot(s2, stubDice([4, 5]), { col: 1, high: false }, { col: 1, high: false });
+  assert.match(res2.roll.verdict.text, /SAVED/);
 });

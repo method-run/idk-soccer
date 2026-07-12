@@ -2,11 +2,11 @@
 // undo/redo history, and the dice cinematic.
 
 import { makeDice } from './dice.js';
-import { W, H, FORMATIONS, TEAM_META } from './data.js';
+import { W, H, FORMATIONS, TEAM_META, PLAYER_POOL } from './data.js';
 import {
   newMatch, activePlayerId, getPlayer, carrier, reachable, moveRange,
   doMove, doPass, doSteal, doShoot, canSteal, canShoot, canPass,
-  setFormation, selectMover, driftPreview, endTurn, cheb,
+  setFormation, selectMover, driftPreview, endTurn, cheb, stepsLeft,
   shotDistance, shotTN, passTN, stealTN, PASS_MAX, getFormation, supportMod,
 } from './game.js';
 import { aiChooseFormation, aiChooseMove, aiChooseAction, aiPickDive, p2d6 } from './ai.js';
@@ -61,8 +61,244 @@ async function banner(text, cls = '', ms = 1400) {
 // ---------------------------------------------------------------------------
 // Match lifecycle
 
-function startMatch(mode) {
+// ---------------------------------------------------------------------------
+// Draft & lineup assignment
+
+let draft = null;
+
+function playerCardHTML(p, extra = '') {
+  return `
+    <span class="pc-role pc-${p.role}">${p.role}</span>
+    <b class="pc-name">${p.name}</b>
+    <span class="pc-stats">SPD ${p.spd} · SHO +${p.sho}<br>PAS +${p.pas} · CTL +${p.ctl}</span>
+    ${extra}`;
+}
+
+function snakeOrder(rounds = 7) {
+  const order = [];
+  for (let r = 0; r < rounds; r++) {
+    order.push(...(r % 2 ? ['away', 'home'] : ['home', 'away']));
+  }
+  return order;
+}
+
+function startDraft(mode) {
+  ui.session++;
+  draft = {
+    mode,
+    remaining: [...PLAYER_POOL],
+    picks: { home: [], away: [] },
+    order: snakeOrder(),
+    idx: 0,
+  };
+  show('screen-draft');
+  renderDraft();
+  maybeAiPick();
+}
+
+function draftTeamNow() {
+  return draft.order[draft.idx];
+}
+
+function draftDone() {
+  return draft.idx >= draft.order.length;
+}
+
+function isHumanDrafter(team) {
+  return draft.mode === 'pvp' || team === 'home';
+}
+
+function pickable(team, p) {
+  const picks = draft.picks[team];
+  const hasGK = picks.some((q) => q.role === 'GK');
+  const left = 7 - picks.length;
+  if (left <= 0) return false;
+  if (p.role === 'GK') return !hasGK;
+  return !(left === 1 && !hasGK); // last pick must be the keeper if missing
+}
+
+function draftValue(team, p) {
+  const picks = draft.picks[team];
+  const count = (role) => picks.filter((q) => q.role === role).length;
+  let v = p.spd * 0.7 + p.sho + p.pas + p.ctl;
+  if (p.role !== 'GK' && count(p.role) < 2) v += 1.2; // roster balance
+  if (p.role === 'GK') v += picks.length >= 3 ? 1.5 : -1; // keeper mid-draft
+  return v;
+}
+
+function doPick(p) {
+  const team = draftTeamNow();
+  draft.remaining = draft.remaining.filter((q) => q.id !== p.id);
+  draft.picks[team].push(p);
+  draft.idx++;
+  renderDraft();
+  if (draftDone()) {
+    setTimeout(startAssign, 400);
+  } else {
+    maybeAiPick();
+  }
+}
+
+async function maybeAiPick() {
+  const mySession = ui.session;
+  while (!draftDone() && !isHumanDrafter(draftTeamNow())) {
+    await rawSleep(350);
+    if (ui.session !== mySession || !draft) return;
+    const team = draftTeamNow();
+    const candidates = draft.remaining.filter((p) => pickable(team, p));
+    const best = candidates.reduce((a, b) =>
+      draftValue(team, b) > draftValue(team, a) ? b : a
+    );
+    doPick(best);
+    return; // doPick re-enters maybeAiPick; avoid double-stepping
+  }
+}
+
+function renderDraft() {
+  if (draftDone()) {
+    $('draft-sub').textContent = 'Draft complete!';
+  } else {
+    const team = draftTeamNow();
+    const meta = TEAM_META[team];
+    $('draft-title').textContent = `Draft — pick ${Math.floor(draft.idx / 2) + 1} of 7`;
+    $('draft-sub').innerHTML = `<span class="team-${team}"><b>${meta.name}</b></span> ${
+      isHumanDrafter(team) ? 'are on the clock' : 'are thinking…'
+    } (snake order)`;
+  }
+  for (const team of ['home', 'away']) {
+    const el = $(`draft-roster-${team}`);
+    el.innerHTML =
+      `<h3 class="team-${team}">${TEAM_META[team].name}</h3>` +
+      draft.picks[team]
+        .map((p) => `<div class="roster-line"><i class="pc-role pc-${p.role}">${p.role}</i> ${p.name}</div>`)
+        .join('');
+  }
+  const pool = $('draft-pool');
+  pool.innerHTML = '';
+  const team = draftDone() ? null : draftTeamNow();
+  const humanTurn = team && isHumanDrafter(team);
+  for (const p of draft.remaining) {
+    const b = document.createElement('button');
+    b.className = 'pcard';
+    b.disabled = !humanTurn || !pickable(team, p);
+    b.innerHTML = playerCardHTML(p);
+    b.addEventListener('click', () => {
+      if (draft && !draftDone() && isHumanDrafter(draftTeamNow()) && pickable(draftTeamNow(), p)) {
+        doPick(p);
+      }
+    });
+    pool.appendChild(b);
+  }
+}
+
+// Lineup assignment: order the 6 outfielders into formation slots.
+let assign = null;
+const SLOT_LABELS = ['Defense 1', 'Defense 2', 'Middle 1', 'Middle 2', 'Attack 1', 'Attack 2'];
+
+function autoLineup(picks) {
+  const gk = picks.find((p) => p.role === 'GK');
+  const rest = picks.filter((p) => p !== gk);
+  const take = (arr, n, score) => {
+    const sorted = [...arr].sort((a, b) => score(b) - score(a));
+    const chosen = sorted.slice(0, n);
+    return [chosen, arr.filter((p) => !chosen.includes(p))];
+  };
+  const [df, afterDf] = take(rest, 2, (p) => p.ctl * 2 + p.spd * 0.3);
+  const [mf, fw] = take(afterDf, 2, (p) => p.pas * 2 + p.spd * 0.3);
+  fw.sort((a, b) => b.sho - a.sho);
+  return { gk, outfield: [...df, ...mf, ...fw] };
+}
+
+function startAssign() {
+  const humanTeams = draft.mode === 'pvp' ? ['home', 'away'] : ['home'];
+  assign = {
+    mode: draft.mode,
+    queue: humanTeams,
+    idx: 0,
+    rosters: {},
+    selected: null,
+  };
+  for (const team of ['home', 'away']) {
+    if (!humanTeams.includes(team)) assign.rosters[team] = autoLineup(draft.picks[team]);
+  }
+  showAssignScreen();
+}
+
+function showAssignScreen() {
+  const team = assign.queue[assign.idx];
+  assign.current = autoLineup(draft.picks[team]);
+  assign.selected = null;
+  $('assign-title').innerHTML = `<span class="team-${team}">${TEAM_META[team].name}</span>: set your lineup`;
+  show('screen-assign');
+  renderAssign();
+}
+
+function renderAssign() {
+  const team = assign.queue[assign.idx];
+  const list = $('assign-list');
+  list.innerHTML = '';
+  const gkRow = document.createElement('div');
+  gkRow.className = 'assign-row assign-gk';
+  gkRow.innerHTML = `<span class="slot-label">Keeper</span>${playerCardHTML(assign.current.gk)}`;
+  list.appendChild(gkRow);
+  assign.current.outfield.forEach((p, i) => {
+    const row = document.createElement('button');
+    row.className = `assign-row${assign.selected === i ? ' assign-selected' : ''}`;
+    row.innerHTML = `<span class="slot-label">${SLOT_LABELS[i]}</span>${playerCardHTML(p)}`;
+    row.addEventListener('click', () => {
+      if (assign.selected === null) {
+        assign.selected = i;
+      } else {
+        const o = assign.current.outfield;
+        [o[assign.selected], o[i]] = [o[i], o[assign.selected]];
+        assign.selected = null;
+      }
+      renderAssign();
+    });
+    list.appendChild(row);
+  });
+}
+
+$('assign-auto').addEventListener('click', () => {
+  const team = assign.queue[assign.idx];
+  assign.current = autoLineup(draft.picks[team]);
+  assign.selected = null;
+  renderAssign();
+});
+$('assign-done').addEventListener('click', () => {
+  const team = assign.queue[assign.idx];
+  assign.rosters[team] = assign.current;
+  assign.idx++;
+  if (assign.idx < assign.queue.length) {
+    showAssignScreen();
+  } else {
+    const rosters = assign.rosters;
+    const mode = assign.mode;
+    draft = null;
+    assign = null;
+    startMatch(mode, rosters);
+  }
+});
+$('draft-quit').addEventListener('click', () => {
+  draft = null;
+  ui.session++;
+  show('screen-menu');
+});
+$('assign-quit').addEventListener('click', () => {
+  draft = null;
+  assign = null;
+  ui.session++;
+  show('screen-menu');
+});
+
+function startFlow(mode) {
+  if (mode !== 'cvc' && $('opt-draft').checked) startDraft(mode);
+  else startMatch(mode);
+}
+
+function startMatch(mode, rosters = null) {
   ui.mode = mode;
+  ui.lastRosters = rosters;
   ui.phase = 'idle';
   ui.seenEvents = 0;
   ui.session++;
@@ -78,7 +314,7 @@ function startMatch(mode) {
   $('btn-pause').hidden = mode !== 'cvc';
   $('btn-pause').textContent = '⏸';
   dice = makeDice();
-  state = newMatch({ mode });
+  state = newMatch({ mode, rosters });
   board = initBoard($('board'), state, {
     onTileClick: handleTileClick,
     onGoalCellClick: handleGoalCell,
@@ -167,7 +403,7 @@ function renderAll() {
   const selPlayer = selected ? getPlayer(state, selected) : null;
 
   const highlights = [];
-  if (human && ui.phase === 'idle' && !state.moved && ui.playerView !== 0) {
+  if (human && ui.phase === 'idle' && stepsLeft(state) > 0 && ui.playerView !== 0) {
     for (const key of reachable(state, selected).keys()) {
       const [x, y] = key.split(',').map(Number);
       if (x === selPlayer.x && y === selPlayer.y) continue;
@@ -347,15 +583,18 @@ function renderMoverChip(activeId) {
 function hint(p, hasBall) {
   if (ui.phase === 'pick-dive') return 'SHOT INCOMING — tap a goal cell to dive your keeper!';
   if (ui.aiTurn) return 'Computer is thinking…';
-  if (ui.phase === 'aim-pass') return 'Tap a square to pass there (odds shown)';
+  if (ui.phase === 'aim-pass') return 'Tap a square (or a teammate) to pass there — odds shown';
   if (ui.phase === 'aim-shot') return 'Tap a goal cell to aim (accuracy shown)';
+  const left = stepsLeft(state);
   if (!state.moved && !state.actionUsed) {
     return hasBall
-      ? `Dribble up to ${moveRange(state, p)} · tap them to cycle ring/stats · tap a teammate to control them instead`
-      : `Move up to ${moveRange(state, p)} — land on the ball to take it · tap a teammate to switch`;
+      ? `Dribble up to ${left} (through defenders = challenge) · tap them to cycle views · tap a teammate to switch`
+      : `Move up to ${left} — land on the ball to take it · tap a teammate to switch`;
   }
-  if (!state.moved) return 'You can still move, or end your turn';
-  return 'Act from the ring, undo, or end your turn';
+  if (left > 0 && !state.actionUsed) return `${left} steps left — move again, act, or end your turn`;
+  if (left > 0) return `${left} steps left — keep moving or end your turn`;
+  if (!state.actionUsed) return 'Act from the ring, or end your turn';
+  return 'Out of moves — end your turn';
 }
 
 function renderButtons() {
@@ -486,9 +725,13 @@ async function playRoll(e) {
   d1.classList.remove('rolling');
   d2.classList.remove('rolling');
   const mod = r.mod >= 0 ? `+${r.mod}` : `${r.mod}`;
+  const v = r.verdict || {
+    text: r.success ? '✓ SUCCESS' : '✗ FAIL',
+    tone: r.success ? 'ok' : 'no',
+  };
   resultEl.innerHTML = `${r.a} + ${r.b} ${mod} = <b>${r.total}</b>
-    <span class="${r.success ? 'ok' : 'no'}">${r.success ? '✓ SUCCESS' : '✗ FAIL'}</span>`;
-  resultEl.classList.add('shown', r.success ? 'ok' : 'no');
+    <span class="${v.tone}">${v.text}</span>`;
+  resultEl.classList.add('shown');
   await beat(750);
   o.classList.remove('visible');
 }
@@ -508,9 +751,9 @@ $('dice-overlay').addEventListener('click', () => {
 
 async function handleTileClick(x, y) {
   if (!isHumanTurn() || state.over) return;
-  if (ui.phase === 'idle' && !state.moved) {
+  if (ui.phase === 'idle' && stepsLeft(state) > 0) {
     const selected = activePlayerId(state);
-    if (!reachable(state, selected).has(`${x},${y}`)) return;
+    if (!reachable(state, selected).get(`${x},${y}`)) return;
     pushHistory();
     ui.phase = 'busy';
     await diceAction(() => doMove(state, dice, x, y));
@@ -734,7 +977,7 @@ function showFullTime() {
     </div>`);
   $('btn-rematch').addEventListener('click', () => {
     hideOverlay();
-    startMatch(ui.mode);
+    startMatch(ui.mode, ui.lastRosters || null);
   });
   $('btn-menu').addEventListener('click', () => {
     hideOverlay();
@@ -742,9 +985,9 @@ function showFullTime() {
   });
 }
 
-$('btn-pve').addEventListener('click', () => startMatch('pve'));
-$('btn-pvp').addEventListener('click', () => startMatch('pvp'));
-$('btn-cvc').addEventListener('click', () => startMatch('cvc'));
+$('btn-pve').addEventListener('click', () => startFlow('pve'));
+$('btn-pvp').addEventListener('click', () => startFlow('pvp'));
+$('btn-cvc').addEventListener('click', () => startFlow('cvc'));
 $('btn-speed').addEventListener('click', () => {
   ui.speed = ui.speed >= 4 ? 1 : ui.speed * 2;
   $('btn-speed').textContent = `${ui.speed}×`;

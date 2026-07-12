@@ -21,6 +21,9 @@ npm test
 
 ## Modes
 
+- **Draft** (optional toggle, on by default for PvE/PvP) — both sides pick
+  7 footballers (1 GK + 6) from a shared 28-player pool in snake order,
+  then arrange them into formation slots before kickoff.
 - **vs Computer** — you are the Reds, a heuristic AI plays the Blues.
 - **2 Players** — hotseat on one device; keeper dives use a blind
   hand-the-device-over overlay.

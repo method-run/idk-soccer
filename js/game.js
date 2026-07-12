@@ -33,16 +33,21 @@ export function getFormation(id) {
 // ---------------------------------------------------------------------------
 // Match setup
 
-export function newMatch({ mode = 'pve', maxTurns = MAX_TURNS } = {}) {
+// rosters (optional): { home: { gk, outfield: [6] }, away: {...} } using
+// PLAYER_POOL-shaped entries; outfield order maps onto formation slots
+// (defensive slots first). Without rosters, the default template is used.
+export function newMatch({ mode = 'pve', maxTurns = MAX_TURNS, rosters = null } = {}) {
   const players = [];
   for (const team of ['home', 'away']) {
-    for (const p of ROSTER) {
+    const r = rosters?.[team];
+    const list = r ? [r.gk, ...r.outfield] : ROSTER;
+    list.forEach((p, i) => {
       players.push({
-        id: `${team}-${p.num}`,
+        id: `${team}-${i + 1}`,
         team,
-        num: p.num,
+        num: i + 1,
         name: p.name,
-        role: p.role,
+        role: i === 0 ? 'GK' : p.role,
         spd: p.spd,
         sho: p.sho,
         pas: p.pas,
@@ -50,7 +55,7 @@ export function newMatch({ mode = 'pve', maxTurns = MAX_TURNS } = {}) {
         x: 0,
         y: 0,
       });
-    }
+    });
   }
   const state = {
     mode,
@@ -63,6 +68,7 @@ export function newMatch({ mode = 'pve', maxTurns = MAX_TURNS } = {}) {
     formations: { home: 'balanced', away: 'balanced' },
     moverId: null, // explicit mover selection; null = default (carrier/closest)
     moved: false,
+    stepsUsed: 0,
     actionUsed: false,
     over: false,
     events: [],
@@ -175,21 +181,33 @@ export function supportMod(state, x, y, team, excludeIds = []) {
 }
 
 // ---------------------------------------------------------------------------
-// Movement
+// Movement. SPD is a step budget spent in any number of segments across the
+// turn — before and/or after your ball action. Occupied tiles can be moved
+// THROUGH (never ended on); dribbling through an opponent triggers a
+// challenge (see resolveDribbleChallenge).
 
 export function moveRange(state, player) {
   const isCarrier = state.ball.carrier === player.id;
-  return isCarrier ? Math.max(1, player.spd - 2) : player.spd;
+  return isCarrier ? Math.max(1, player.spd - 1) : player.spd;
 }
 
-// BFS over unoccupied tiles, 8-directional. Returns Map "x,y" -> steps.
-export function reachable(state, playerId) {
+// Steps the current mover still has this turn.
+export function stepsLeft(state) {
+  const p = getPlayer(state, activePlayerId(state));
+  return Math.max(0, moveRange(state, p) - state.stepsUsed);
+}
+
+// 8-directional BFS. Occupied tiles are traversable but not terminal.
+// Returns { dist: Map key->steps (endable tiles only), parent: Map } within
+// the mover's remaining budget.
+function bfsInfo(state, playerId, max) {
   const player = getPlayer(state, playerId);
-  const max = moveRange(state, player);
-  const blocked = new Set(
+  const occupied = new Set(
     state.players.filter((p) => p.id !== playerId).map((p) => `${p.x},${p.y}`)
   );
-  const dist = new Map([[`${player.x},${player.y}`, 0]]);
+  const startKey = `${player.x},${player.y}`;
+  const seen = new Map([[startKey, 0]]);
+  const parent = new Map();
   let frontier = [[player.x, player.y]];
   for (let step = 1; step <= max; step++) {
     const next = [];
@@ -198,38 +216,120 @@ export function reachable(state, playerId) {
         const nx = cx + dx;
         const ny = cy + dy;
         const key = `${nx},${ny}`;
-        if (!inBounds(nx, ny) || blocked.has(key) || dist.has(key)) continue;
-        dist.set(key, step);
+        if (!inBounds(nx, ny) || seen.has(key)) continue;
+        seen.set(key, step);
+        parent.set(key, `${cx},${cy}`);
         next.push([nx, ny]);
       }
     }
     frontier = next;
   }
-  return dist;
+  const dist = new Map();
+  for (const [key, d] of seen) {
+    if (!occupied.has(key)) dist.set(key, d);
+  }
+  return { dist, parent, startKey };
 }
 
-// Move the forced mover to (x,y). Handles loose-ball pickup on arrival.
+function budgetFor(state, playerId) {
+  const player = getPlayer(state, playerId);
+  const used = activePlayerId(state) === playerId ? state.stepsUsed : 0;
+  return Math.max(0, moveRange(state, player) - used);
+}
+
+// Map "x,y" -> steps for tiles the player can END a segment on.
+export function reachable(state, playerId) {
+  return bfsInfo(state, playerId, budgetFor(state, playerId)).dist;
+}
+
+// Move the mover to (x,y), spending steps. Multiple segments per turn are
+// allowed while budget remains. Handles dribble challenges en route and
+// loose-ball pickup on arrival.
 export function doMove(state, dice, x, y) {
-  if (state.moved) return { ok: false, reason: 'already moved' };
   const player = getPlayer(state, activePlayerId(state));
-  const tiles = reachable(state, player.id);
-  if (!tiles.has(`${x},${y}`)) return { ok: false, reason: 'unreachable' };
-  const hadBall = state.ball.carrier === player.id;
-  player.x = x;
-  player.y = y;
+  const budget = budgetFor(state, player.id);
+  if (budget <= 0) return { ok: false, reason: 'no steps left' };
+  const info = bfsInfo(state, player.id, budget);
+  const key = `${x},${y}`;
+  const steps = info.dist.get(key);
+  if (!steps) return { ok: false, reason: 'unreachable' }; // undefined or 0 (own tile)
   state.moved = true;
   state.moverId = player.id; // lock the selection once committed
-  if (hadBall) {
+  state.stepsUsed += steps;
+
+  // Reconstruct the path (start exclusive, destination inclusive).
+  const path = [];
+  for (let k = key; k !== info.startKey; k = info.parent.get(k)) {
+    path.unshift(k.split(',').map(Number));
+  }
+
+  const hadBall = state.ball.carrier === player.id;
+  logEvent(
+    state,
+    'move',
+    `#${player.num} ${player.name} ${hadBall ? 'dribbles' : 'runs'} to (${x},${y})`
+  );
+  // Dribble challenges for every opponent stood on the path.
+  for (const [tx, ty] of path) {
+    if (state.ball.carrier !== player.id) break; // lost it en route
+    const occ = occupantAt(state, tx, ty);
+    if (occ && occ.team !== player.team) {
+      resolveDribbleChallenge(state, dice, player, occ);
+    }
+  }
+  player.x = x;
+  player.y = y;
+  if (state.ball.carrier === player.id) {
     state.ball.x = x;
     state.ball.y = y;
-    logEvent(state, 'move', `#${player.num} ${player.name} dribbles to (${x},${y})`);
-    return { ok: true };
-  }
-  logEvent(state, 'move', `#${player.num} ${player.name} runs to (${x},${y})`);
-  if (!state.ball.carrier && state.ball.x === x && state.ball.y === y) {
+  } else if (!state.ball.carrier && state.ball.x === x && state.ball.y === y) {
     resolvePickup(state, dice, player);
   }
-  return { ok: true };
+  return { ok: true, steps };
+}
+
+// Dribbling through a defender: opposed 2d6+CTL (dribbler gets support,
+// ties win). Lose by 1-2: ball knocked loose off the defender. Lose by 3+:
+// clean steal — the defender keeps the ball where they stand. Either way
+// the dribbler's run carries on to the chosen square.
+function resolveDribbleChallenge(state, dice, dribbler, defender) {
+  const sup = supportMod(state, defender.x, defender.y, dribbler.team, [
+    dribbler.id,
+    defender.id,
+  ]);
+  const mine = dice.roll2d6(dribbler.ctl + sup);
+  const theirs = dice.roll2d6(defender.ctl);
+  const through = mine.total >= theirs.total;
+  const deficit = theirs.total - mine.total;
+  const verdict = through
+    ? { text: '💨 THROUGH!', tone: 'ok' }
+    : deficit >= 3
+      ? { text: '⛔ STOLEN!', tone: 'no' }
+      : { text: '💥 KNOCKED LOOSE!', tone: 'mid' };
+  logEvent(
+    state,
+    'dribble',
+    `#${dribbler.num} ${dribbler.name} takes on #${defender.num} ${defender.name}: ` +
+      `${mine.total} vs ${theirs.total} — ${verdict.text}`,
+    {
+      a: mine.a, b: mine.b, mod: mine.mod, total: mine.total,
+      tn: theirs.total, success: through,
+      title: 'Dribble challenge',
+      tnLabel: `#${defender.num} ${defender.name} rolled ${theirs.a}+${theirs.b}+${theirs.mod}`,
+      modLabel: `CTL +${dribbler.ctl}${sup ? ` ${sup > 0 ? '+' : ''}${sup} support` : ''} (ties win)`,
+      opp: { a: theirs.a, b: theirs.b, mod: theirs.mod, total: theirs.total },
+      verdict,
+    }
+  );
+  if (through) return;
+  if (deficit >= 3) {
+    state.ball.carrier = defender.id;
+    state.ball.x = defender.x;
+    state.ball.y = defender.y;
+  } else {
+    scatterBall(state, dice, defender.x, defender.y, 1);
+    logEvent(state, 'loose', 'The ball squirts free!');
+  }
 }
 
 // Loose-ball pickup: automatic if no opponent is adjacent, otherwise an
@@ -484,6 +584,26 @@ export function doShoot(state, dice, aim, dive) {
     outcome = 'wide';
   }
 
+  // Cinematic verdicts: say what actually happened, not SUCCESS/FAIL —
+  // an on-target shot can still be a save.
+  if (!r.success) {
+    r.verdict =
+      outcome === 'rebound'
+        ? { text: '💥 OFF THE FRAME!', tone: 'no' }
+        : { text: 'OFF TARGET', tone: 'no' };
+  } else if (r.doubles) {
+    r.verdict = { text: '⚽ GOAL! Unstoppable!', tone: 'ok' };
+  } else if (keeperRoll) {
+    r.verdict = { text: 'ON TARGET — keeper scrambles…', tone: 'mid' };
+    keeperRoll.verdict = keeperRoll.success
+      ? { text: '🧤 SAVED!', tone: 'mid' }
+      : { text: '⚽ GOAL!', tone: 'ok' };
+  } else if (outcome === 'save') {
+    r.verdict = { text: '🧤 SAVED — keeper guessed right!', tone: 'mid' };
+  } else {
+    r.verdict = { text: '⚽ GOAL! Keeper went the wrong way!', tone: 'ok' };
+  }
+
   if (outcome === 'goal') {
     state.score[shooter.team]++;
     logEvent(state, 'score', `${shooter.team.toUpperCase()} scores! ${state.score.home}–${state.score.away}`);
@@ -535,6 +655,7 @@ function placeAt(state, player, x, y) {
 export function kickoff(state, teamWithBall) {
   const mid = Math.floor(H / 2);
   state.moverId = null;
+  state.stepsUsed = 0;
   state.ball.carrier = null;
   state.ball.x = CENTER_X;
   state.ball.y = teamWithBall === 'home' ? mid : mid - 1;
@@ -592,6 +713,7 @@ export function endTurn(state, dice, { skipDrift = false } = {}) {
   state.activeTeam = otherTeam(state.activeTeam);
   state.moverId = null;
   state.moved = false;
+  state.stepsUsed = 0;
   state.actionUsed = false;
 }
 
