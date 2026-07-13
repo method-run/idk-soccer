@@ -83,7 +83,14 @@ button.primary { background: var(--accent); color: #201700; border-color: var(--
 }
 .pcard:not(:disabled):hover { border-color: var(--accent); }
 .pc-name { font-size: 0.88rem; }
-.pc-stats { color: var(--muted); font-size: 0.72rem; }
+.pc-stats { color: var(--muted); font-size: 0.72rem; display: flex; flex-wrap: wrap; gap: 2px 8px; }
+
+.stat-chip { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+.stat-chip i { font-style: normal; font-size: 0.86em; color: var(--muted); }
+.stat-chip b { font-weight: 700; color: var(--text); }
+.stat-ico { width: 11px; height: 11px; fill: currentColor; opacity: 0.85; flex: none; }
+.chip-stats { color: var(--muted); display: inline-flex; gap: 8px; }
+.stats-ico { fill: var(--muted); }
 .pc-role {
   font-style: normal; font-size: 0.66rem; font-weight: 800; padding: 1px 6px;
   border-radius: 999px; color: #10240f;
@@ -225,6 +232,23 @@ button.primary { background: var(--accent); color: #201700; border-color: var(--
 .target-ghost { opacity: 0.5; pointer-events: none; }
 .target-ghost.team-home { fill: none; stroke: var(--home); stroke-width: 2; }
 .target-ghost.team-away { fill: none; stroke: var(--away); stroke-width: 2; }
+
+/* hover path preview */
+.layer-path { pointer-events: none; }
+.path-line {
+  fill: none; stroke: #fff; stroke-width: 3; stroke-dasharray: 7 5;
+  stroke-linejoin: round; opacity: 0.9;
+}
+.path-dot { fill: #fff; opacity: 0.9; }
+.path-count {
+  fill: #fff; font-size: 11px; font-weight: 800; text-anchor: middle;
+  paint-order: stroke; stroke: rgba(0, 0, 0, 0.7); stroke-width: 3px;
+}
+.path-count-final { font-size: 14px; fill: var(--accent); }
+.path-challenge path { fill: var(--accent); stroke: rgba(0,0,0,0.6); stroke-width: 0.8; }
+.path-challenge-mark {
+  fill: #201700; font-size: 13px; font-weight: 900; text-anchor: middle;
+}
 
 .drift-arrow { stroke-width: 3; opacity: 0.85; pointer-events: none; }
 .drift-arrow.team-home { stroke: #ffb3ad; }

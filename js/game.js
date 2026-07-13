@@ -242,6 +242,21 @@ export function reachable(state, playerId) {
   return bfsInfo(state, playerId, budgetFor(state, playerId)).dist;
 }
 
+// The route a move to (x,y) would take: { steps, path: [[x,y],...] }
+// (start exclusive, destination inclusive), or null if unreachable. This is
+// exactly the path doMove will walk, so the UI can preview challenges.
+export function movePath(state, playerId, x, y) {
+  const info = bfsInfo(state, playerId, budgetFor(state, playerId));
+  const key = `${x},${y}`;
+  const steps = info.dist.get(key);
+  if (!steps) return null;
+  const path = [];
+  for (let k = key; k !== info.startKey; k = info.parent.get(k)) {
+    path.unshift(k.split(',').map(Number));
+  }
+  return { steps, path };
+}
+
 // Move the mover to (x,y), spending steps. Multiple segments per turn are
 // allowed while budget remains. Handles dribble challenges en route and
 // loose-ball pickup on arrival.

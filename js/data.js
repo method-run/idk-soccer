@@ -73,41 +73,41 @@ export const FORMATIONS = [
   },
 ];
 
-// Draft pool: 4 keepers + 24 outfielders with names and distinct stat
-// spreads. Each team drafts 1 GK + 6 outfielders.
+// Draft pool: 4 keepers + 24 outfielders — barely fictionalized stars whose
+// stats echo their real-world profiles. Each team drafts 1 GK + 6 outfielders.
 export const PLAYER_POOL = [
   // Keepers
-  { id: 'gk1', name: '"The Wall" Vold', role: 'GK', spd: 4, sho: 0, pas: 1, ctl: 3 },
-  { id: 'gk2', name: 'Kofi Mensah', role: 'GK', spd: 5, sho: 0, pas: 2, ctl: 2 },
-  { id: 'gk3', name: 'Yuri Balakin', role: 'GK', spd: 4, sho: 0, pas: 0, ctl: 3 },
-  { id: 'gk4', name: 'Tama Fifita', role: 'GK', spd: 4, sho: 1, pas: 1, ctl: 2 },
+  { id: 'gk1', name: 'Alysson Bucker', role: 'GK', spd: 4, sho: 0, pas: 1, ctl: 3 },
+  { id: 'gk2', name: 'Manuel Neuherr', role: 'GK', spd: 5, sho: 0, pas: 2, ctl: 2 },
+  { id: 'gk3', name: 'Thibaut Kourtoise', role: 'GK', spd: 4, sho: 0, pas: 0, ctl: 3 },
+  { id: 'gk4', name: 'Ederson Morays', role: 'GK', spd: 4, sho: 1, pas: 2, ctl: 1 },
   // Defenders
-  { id: 'd1', name: 'Rosa Quintana', role: 'DF', spd: 4, sho: 0, pas: 1, ctl: 3 },
-  { id: 'd2', name: 'Bruno Ferro', role: 'DF', spd: 4, sho: 0, pas: 2, ctl: 2 },
-  { id: 'd3', name: 'Sipho Dlamini', role: 'DF', spd: 5, sho: 0, pas: 1, ctl: 2 },
-  { id: 'd4', name: 'Greta Lindqvist', role: 'DF', spd: 4, sho: 1, pas: 1, ctl: 2 },
-  { id: 'd5', name: 'Marco Bellini', role: 'DF', spd: 5, sho: 0, pas: 0, ctl: 3 },
-  { id: 'd6', name: 'Ada Nwosu', role: 'DF', spd: 6, sho: 0, pas: 1, ctl: 1 },
-  { id: 'd7', name: 'Jonas Weiss', role: 'DF', spd: 4, sho: 1, pas: 2, ctl: 1 },
-  { id: 'd8', name: 'Carmen Vega', role: 'DF', spd: 5, sho: 0, pas: 2, ctl: 2 },
+  { id: 'd1', name: 'Virgil van Dyke', role: 'DF', spd: 4, sho: 0, pas: 1, ctl: 3 },
+  { id: 'd2', name: 'Ruben Diaz', role: 'DF', spd: 4, sho: 0, pas: 1, ctl: 3 },
+  { id: 'd3', name: 'Ashraf Hakeemi', role: 'DF', spd: 6, sho: 0, pas: 1, ctl: 1 },
+  { id: 'd4', name: 'Trent Arnold-Alexander', role: 'DF', spd: 4, sho: 1, pas: 3, ctl: 0 },
+  { id: 'd5', name: 'Markinhos', role: 'DF', spd: 4, sho: 0, pas: 1, ctl: 3 },
+  { id: 'd6', name: 'Will Saleeba', role: 'DF', spd: 5, sho: 0, pas: 1, ctl: 2 },
+  { id: 'd7', name: 'Josko Gvardian', role: 'DF', spd: 5, sho: 0, pas: 1, ctl: 2 },
+  { id: 'd8', name: 'Dani Carvahal', role: 'DF', spd: 5, sho: 1, pas: 1, ctl: 2 },
   // Midfielders
-  { id: 'm1', name: 'Luka Petrič', role: 'MF', spd: 5, sho: 1, pas: 3, ctl: 1 },
-  { id: 'm2', name: 'Mei Tanaka', role: 'MF', spd: 5, sho: 1, pas: 2, ctl: 2 },
-  { id: 'm3', name: 'Diego Fuentes', role: 'MF', spd: 4, sho: 2, pas: 3, ctl: 0 },
-  { id: 'm4', name: 'Awa Diallo', role: 'MF', spd: 6, sho: 1, pas: 2, ctl: 1 },
-  { id: 'm5', name: 'Tomás Silva', role: 'MF', spd: 5, sho: 0, pas: 3, ctl: 2 },
-  { id: 'm6', name: 'Elif Kaya', role: 'MF', spd: 5, sho: 2, pas: 2, ctl: 1 },
-  { id: 'm7', name: 'Piotr Nowak', role: 'MF', spd: 4, sho: 1, pas: 3, ctl: 1 },
-  { id: 'm8', name: 'Nia Okafor', role: 'MF', spd: 6, sho: 2, pas: 1, ctl: 1 },
+  { id: 'm1', name: 'Kevin De Broin', role: 'MF', spd: 4, sho: 2, pas: 3, ctl: 0 },
+  { id: 'm2', name: 'Luka Modritch', role: 'MF', spd: 4, sho: 1, pas: 3, ctl: 1 },
+  { id: 'm3', name: 'Jude Bellingsworth', role: 'MF', spd: 5, sho: 2, pas: 2, ctl: 1 },
+  { id: 'm4', name: "N'Golo Kanteh", role: 'MF', spd: 5, sho: 0, pas: 1, ctl: 3 },
+  { id: 'm5', name: 'Rodri Hernandes', role: 'MF', spd: 4, sho: 1, pas: 3, ctl: 2 },
+  { id: 'm6', name: 'Frenkie de Young', role: 'MF', spd: 5, sho: 0, pas: 3, ctl: 1 },
+  { id: 'm7', name: 'Pedri Gonsales', role: 'MF', spd: 5, sho: 1, pas: 3, ctl: 1 },
+  { id: 'm8', name: 'Federico Valverdi', role: 'MF', spd: 6, sho: 2, pas: 1, ctl: 1 },
   // Forwards
-  { id: 'f1', name: 'Zlatko Brkić', role: 'FW', spd: 5, sho: 3, pas: 0, ctl: 1 },
-  { id: 'f2', name: 'Kylie Marsh', role: 'FW', spd: 6, sho: 2, pas: 1, ctl: 1 },
-  { id: 'f3', name: 'Henrik Dahl', role: 'FW', spd: 4, sho: 3, pas: 1, ctl: 0 },
-  { id: 'f4', name: 'Fatou Ba', role: 'FW', spd: 6, sho: 3, pas: 0, ctl: 0 },
-  { id: 'f5', name: 'Rafael Costa', role: 'FW', spd: 5, sho: 2, pas: 2, ctl: 1 },
-  { id: 'f6', name: 'Ingrid Solberg', role: 'FW', spd: 5, sho: 3, pas: 1, ctl: 0 },
-  { id: 'f7', name: 'Marcus Bright', role: 'FW', spd: 6, sho: 1, pas: 2, ctl: 1 },
-  { id: 'f8', name: 'Chen Wei', role: 'FW', spd: 4, sho: 3, pas: 0, ctl: 2 },
+  { id: 'f1', name: 'Leo Nessi', role: 'FW', spd: 5, sho: 3, pas: 3, ctl: 2 },
+  { id: 'f2', name: 'Cristiano Bonaldo', role: 'FW', spd: 5, sho: 3, pas: 1, ctl: 1 },
+  { id: 'f3', name: 'Kylian Mbompé', role: 'FW', spd: 6, sho: 3, pas: 1, ctl: 0 },
+  { id: 'f4', name: 'Erling Haalund', role: 'FW', spd: 5, sho: 3, pas: 0, ctl: 1 },
+  { id: 'f5', name: 'Neimar Junyor', role: 'FW', spd: 5, sho: 2, pas: 2, ctl: 2 },
+  { id: 'f6', name: 'Mo Sallah', role: 'FW', spd: 6, sho: 3, pas: 1, ctl: 0 },
+  { id: 'f7', name: 'Vinny Junyor', role: 'FW', spd: 6, sho: 2, pas: 1, ctl: 1 },
+  { id: 'f8', name: 'Harry Cane', role: 'FW', spd: 4, sho: 3, pas: 2, ctl: 1 },
 ];
 
 export const TEAM_META = {

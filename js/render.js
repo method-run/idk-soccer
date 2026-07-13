@@ -7,6 +7,7 @@
 // goal and attacks the right (engine y=0 maps to the right edge).
 
 import { W, H, GOAL_COLS, TEAM_META } from './data.js';
+import { STAT_ICONS } from './icons.js';
 import { formationTargets, activePlayerId, PASS_MAX, cheb, shotTN, passTN } from './game.js';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -68,7 +69,9 @@ export function initBoard(svg, state, handlers) {
   ctx.gTargets = el('g', { class: 'layer-targets' }, svg);
   ctx.gArrows = el('g', { class: 'layer-arrows' }, svg);
   ctx.gHighlights = el('g', { class: 'layer-highlights' }, svg);
+  ctx.gPathPreview = el('g', { class: 'layer-path' }, svg);
   ctx.gPlayers = el('g', { class: 'layer-players' }, svg);
+  svg.addEventListener('mouseleave', () => handlers.onTileHover?.(null));
 
   for (const p of state.players) {
     const g = el('g', { class: `piece team-${p.team}`, 'data-id': p.id }, ctx.gPlayers);
@@ -223,7 +226,12 @@ export function render(ctx, state, ui) {
       ev.stopPropagation();
       ctx.handlers.onTileClick?.(h.x, h.y);
     });
+    if (h.kind === 'move') {
+      r.addEventListener('mouseenter', () => ctx.handlers.onTileHover?.(h.x, h.y));
+      r.addEventListener('mouseleave', () => ctx.handlers.onTileHover?.(null));
+    }
   }
+  ctx.gPathPreview.innerHTML = ''; // renderPathPreview redraws on hover
 
   // goal aim cells
   for (const side of ['left', 'right']) {
@@ -247,6 +255,49 @@ export function render(ctx, state, ui) {
 
   renderRing(ctx, state, ui);
   renderStatsCard(ctx, state, ui);
+}
+
+// Hover path preview: the exact route a move would take, with a running
+// step count (3/5) per square and a warning shield wherever a contested
+// control check would trigger.
+// preview: { from: {x,y}, tiles: [{x, y, label, challenge}] } or null.
+export function renderPathPreview(ctx, preview) {
+  ctx.gPathPreview.innerHTML = '';
+  if (!preview) return;
+  const pts = [
+    [cx(preview.from.x, preview.from.y), cy(preview.from.x)],
+    ...preview.tiles.map((t) => [cx(t.x, t.y), cy(t.x)]),
+  ];
+  el('polyline', {
+    points: pts.map(([px, py]) => `${px},${py}`).join(' '),
+    class: 'path-line',
+    'marker-end': 'url(#arrowhead)',
+  }, ctx.gPathPreview);
+  preview.tiles.forEach((t, i) => {
+    const px = cx(t.x, t.y);
+    const py = cy(t.x);
+    const last = i === preview.tiles.length - 1;
+    if (!t.challenge) {
+      el('circle', { cx: px, cy: py, r: 3.5, class: 'path-dot' }, ctx.gPathPreview);
+    } else {
+      // amber warning shield: a contested control check happens here
+      const g = el('g', { class: 'path-challenge' }, ctx.gPathPreview);
+      el('title', {}, g).textContent = 'Contested control check!';
+      el('path', {
+        d: STAT_ICONS.ctl.path,
+        'fill-rule': 'evenodd',
+        transform: `translate(${px - 11},${py - 12}) scale(0.95)`,
+      }, g);
+      const ex = el('text', { x: px, y: py + 4, class: 'path-challenge-mark' }, g);
+      ex.textContent = '!';
+    }
+    const label = el('text', {
+      x: px + (last ? 0 : 14),
+      y: py + (last ? -14 : -10),
+      class: `path-count${last ? ' path-count-final' : ''}`,
+    }, ctx.gPathPreview);
+    label.textContent = t.label;
+  });
 }
 
 // Action ring: pill buttons arced around the selected player.
@@ -300,10 +351,24 @@ function renderStatsCard(ctx, state, ui) {
   el('rect', { x: bx, y: by, width: bw, height: 20, rx: 8, class: 'stats-head' }, g);
   const name = el('text', { x: bx + 8, y: by + 14, class: 'stats-name' }, g);
   name.textContent = `#${p.num} ${p.name} (${p.role})`;
-  const l1 = el('text', { x: bx + 8, y: by + 37, class: 'stats-line' }, g);
-  l1.textContent = `SPD ${p.spd}   SHO +${p.sho}`;
-  const l2 = el('text', { x: bx + 8, y: by + 54, class: 'stats-line' }, g);
-  l2.textContent = `PAS +${p.pas}   CTL +${p.ctl}`;
+  const cells = [
+    ['spd', p.spd, bx + 8, by + 24],
+    ['sho', `+${p.sho}`, bx + 78, by + 24],
+    ['pas', `+${p.pas}`, bx + 8, by + 43],
+    ['ctl', `+${p.ctl}`, bx + 78, by + 43],
+  ];
+  for (const [key, val, ix, iy] of cells) {
+    const ic = STAT_ICONS[key];
+    const icon = el('path', {
+      d: ic.path,
+      class: 'stats-ico',
+      transform: `translate(${ix},${iy}) scale(0.58)`,
+    }, g);
+    if (ic.fillRule) icon.setAttribute('fill-rule', ic.fillRule);
+    el('title', {}, icon).textContent = `${ic.label} · ${ic.full}`;
+    const t = el('text', { x: ix + 18, y: iy + 11, class: 'stats-line' }, g);
+    t.textContent = val;
+  }
 }
 
 // Which goal (screen side) a team attacks.

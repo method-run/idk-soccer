@@ -8,9 +8,11 @@ import {
   doMove, doPass, doSteal, doShoot, canSteal, canShoot, canPass,
   setFormation, selectMover, driftPreview, endTurn, cheb, stepsLeft,
   shotDistance, shotTN, passTN, stealTN, PASS_MAX, getFormation, supportMod,
+  movePath, occupantAt,
 } from './game.js';
 import { aiChooseFormation, aiChooseMove, aiChooseAction, aiPickDive, p2d6 } from './ai.js';
-import { initBoard, render, goalSideFor } from './render.js';
+import { initBoard, render, renderPathPreview, goalSideFor } from './render.js';
+import { statLine } from './icons.js';
 
 const $ = (id) => document.getElementById(id);
 const rawSleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -70,7 +72,7 @@ function playerCardHTML(p, extra = '') {
   return `
     <span class="pc-role pc-${p.role}">${p.role}</span>
     <b class="pc-name">${p.name}</b>
-    <span class="pc-stats">SPD ${p.spd} · SHO +${p.sho}<br>PAS +${p.pas} · CTL +${p.ctl}</span>
+    <span class="pc-stats">${statLine(p, { abbrev: true })}</span>
     ${extra}`;
 }
 
@@ -320,6 +322,7 @@ function startMatch(mode, rosters = null) {
     onGoalCellClick: handleGoalCell,
     onPlayerClick: handlePlayerClick,
     onRingAction: handleRingAction,
+    onTileHover: handleTileHover,
   });
   $('log').innerHTML = '';
   $('dice-tray').innerHTML = '';
@@ -577,6 +580,7 @@ function renderMoverChip(activeId) {
   chip.innerHTML = `
     <span class="chip-badge team-${p.team}">#${p.num}</span>
     <span class="chip-name">${p.name}${hasBall ? ' ⚽' : ''}</span>
+    <span class="chip-stats">${statLine(p)}</span>
     <span class="chip-hint">${hint(p, hasBall)}</span>`;
 }
 
@@ -765,6 +769,41 @@ async function handleTileClick(x, y) {
     ui.phase = 'idle';
     renderAll();
   }
+}
+
+// Hovering a reachable square previews the exact route: running step count
+// (e.g. 3/5) and a warning shield on every square that would trigger a
+// contested control check — so a longer, safer route is an informed choice.
+function handleTileHover(x, y) {
+  if (x === null || state.over || !isHumanTurn() || ui.phase !== 'idle') {
+    renderPathPreview(board, null);
+    return;
+  }
+  const mover = getPlayer(state, activePlayerId(state));
+  const mp = movePath(state, mover.id, x, y);
+  if (!mp) {
+    renderPathPreview(board, null);
+    return;
+  }
+  const total = moveRange(state, mover);
+  const base = state.stepsUsed;
+  const carrying = state.ball.carrier === mover.id;
+  const tiles = mp.path.map(([tx, ty], i) => {
+    const occ = occupantAt(state, tx, ty);
+    let challenge = !!(carrying && occ && occ.team !== mover.team);
+    // contested pickup where the segment ends on a loose ball
+    if (
+      i === mp.path.length - 1 &&
+      !state.ball.carrier &&
+      state.ball.x === tx &&
+      state.ball.y === ty &&
+      state.players.some((p) => p.team !== mover.team && cheb(p.x, p.y, tx, ty) <= 1)
+    ) {
+      challenge = true;
+    }
+    return { x: tx, y: ty, label: `${base + i + 1}/${total}`, challenge };
+  });
+  renderPathPreview(board, { from: { x: mover.x, y: mover.y }, tiles });
 }
 
 function handlePlayerClick(pid) {
@@ -1002,6 +1041,13 @@ $('btn-quit').addEventListener('click', () => {
   ui.session++; // abort any in-flight AI loop
   ui.paused = false;
   show('screen-menu');
+});
+
+// Stat icon legend in the help screen
+import('./icons.js').then(({ STAT_ICONS, statIcon }) => {
+  $('stat-legend').innerHTML = Object.entries(STAT_ICONS)
+    .map(([k, ic]) => `<span class="stat-chip">${statIcon(k)}<i>${ic.label}</i></span> ${ic.full.split(' — ')[1]}`)
+    .join(' · ');
 });
 
 // PWA service worker
