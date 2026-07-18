@@ -593,15 +593,15 @@ test('graded saves: keeper roll target scales with dive distance', () => {
     s.ball = { x: 3, y: 2, carrier: st.id };
     return s;
   };
-  // 1 cell off: TN 9. Away keeper CTL +3, roll 4+5+3=12 -> SAVED.
+  // 1 cell off: TN 11. Away keeper CTL +3, roll 4+5+3=12 -> SAVED.
   const s1 = setup();
   const r1 = doShoot(s1, stubDice([4, 5]), { col: 1, high: false }, { col: 1, high: true });
-  assert.equal(r1.keeperRoll.tn, 9);
+  assert.equal(r1.keeperRoll.tn, 11);
   assert.equal(r1.outcome, 'save');
 
-  // 2 cells off: TN 12. Roll 2+3+3=8 -> GOAL. (shot 6+5+3=14 accurate)
+  // 2 cells off: TN 14. Roll 2+3+3=8 -> GOAL. (shot 6+5+3=14 accurate)
   const s2 = setup();
   const r2 = doShoot(s2, stubDice([6, 5, 2, 3]), { col: 2, high: false }, { col: 1, high: true });
-  assert.equal(r2.keeperRoll.tn, 12);
+  assert.equal(r2.keeperRoll.tn, 14);
   assert.equal(r2.outcome, 'goal');
 });

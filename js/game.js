@@ -527,7 +527,7 @@ export function shotDistance(state, shooter) {
 }
 
 export function shotTN(dist, aim) {
-  return 8 + Math.ceil(Math.max(0, dist - 2) / 2) + (aim && aim.col !== 1 ? 1 : 0);
+  return 6 + Math.ceil(Math.max(0, dist - 2) / 3) + (aim && aim.col !== 1 ? 1 : 0);
 }
 
 export function canShoot(state) {
@@ -546,10 +546,10 @@ export function doShoot(state, dice, aim, dive) {
   const keeper = defendingKeeper(state, shooter.team);
   const dist = shotDistance(state, shooter);
   const r = dice.check(shooter.sho, shotTN(dist, aim));
-  const distPart = Math.ceil(Math.max(0, dist - 2) / 2);
+  const distPart = Math.ceil(Math.max(0, dist - 2) / 3);
   Object.assign(r, {
     title: 'Shot',
-    tnLabel: `8 base${distPart ? ` + ${distPart} distance` : ''}${aim.col !== 1 ? ' + 1 corner' : ''}`,
+    tnLabel: `6 base${distPart ? ` + ${distPart} distance` : ''}${aim.col !== 1 ? ' + 1 corner' : ''}`,
     modLabel: `SHO +${shooter.sho}`,
   });
   state.actionUsed = true;
@@ -581,10 +581,10 @@ export function doShoot(state, dice, aim, dive) {
       outcome = 'goal';
       logEvent(state, 'goal', `Keeper dove ${diveName} — completely the wrong way! GOAL!`);
     } else {
-      keeperRoll = dice.check(keeper.ctl, 6 + 3 * off);
+      keeperRoll = dice.check(keeper.ctl, 8 + 3 * off);
       Object.assign(keeperRoll, {
         title: 'Keeper save',
-        tnLabel: `6 base + ${3 * off} (dove ${off} cell${off > 1 ? 's' : ''} off the shot)`,
+        tnLabel: `8 base + ${3 * off} (dove ${off} cell${off > 1 ? 's' : ''} off the shot)`,
         modLabel: `CTL +${keeper.ctl}`,
       });
       if (keeperRoll.success) {

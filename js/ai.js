@@ -87,11 +87,11 @@ export function aiChooseAction(state, dice) {
   const pCorner = p2d6(me.sho, shotTN(dist, cornerAim));
   const pCenter = p2d6(me.sho, shotTN(dist, centerAim));
   // Rough keeper-beat odds: corners dodge the dive more often.
-  const evCorner = pCorner * 0.75;
-  const evCenter = pCenter * 0.55;
+  const evCorner = pCorner * 0.8;
+  const evCenter = pCenter * 0.6;
   const aim = evCorner >= evCenter ? cornerAim : centerAim;
   const shootEV = Math.max(evCorner, evCenter);
-  if (dist <= 6 && shootEV >= 0.22) return { type: 'shoot', aim };
+  if (dist <= 6 && shootEV >= 0.25) return { type: 'shoot', aim };
 
   // Pass? Find a teammate meaningfully closer to goal, on a makeable ball.
   const mouth = attackMouth(me.team);
