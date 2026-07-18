@@ -11,8 +11,14 @@ import {
   movePath, occupantAt, keeperDistance, KEEPER_STRANDED,
 } from './game.js';
 import { aiChooseFormation, aiChooseMove, aiChooseAction, aiPickDive, p2d6 } from './ai.js';
-import { initBoard, render, renderPathPreview, goalSideFor } from './render.js';
+import { initBoard, render, renderPathPreview, goalSideFor, tileCenterUV } from './render.js';
+import { initMeeples, renderMeeples, setMeeplesVisible } from './meeples.js';
 import { statLine } from './icons.js';
+import { LOOKS, fallbackLook, portraitSVG } from './portraits.js';
+
+function lookFor(p) {
+  return LOOKS[p.lookId || p.id] || fallbackLook(p.name);
+}
 
 const $ = (id) => document.getElementById(id);
 const rawSleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -29,6 +35,7 @@ const ui = {
   speed: 1,
   session: 0, // bumped on new match / quit; stale async loops check it
   paused: false,
+  view3d: localStorage.getItem('gs-view3d') !== '0',
   playerView: 1, // 0 minimal | 1 action ring | 2 stats
   inspectId: null, // stats peek at a non-selected player
   skipRoll: false,
@@ -70,6 +77,7 @@ let draft = null;
 
 function playerCardHTML(p, extra = '') {
   return `
+    ${portraitSVG(lookFor(p), { size: 48, team: p.team || null })}
     <span class="pc-role pc-${p.role}">${p.role}</span>
     <b class="pc-name">${p.name}</b>
     <span class="pc-stats">${statLine(p, { abbrev: true })}</span>
@@ -329,6 +337,7 @@ function startMatch(mode, rosters = null) {
     onRingAction: handleRingAction,
     onTileHover: handleTileHover,
   });
+  initMeeples($('board-wrap'), $('board'), { onPlayerClick: handlePlayerClick });
   $('log').innerHTML = '';
   $('dice-tray').innerHTML = '';
   show('screen-match');
@@ -459,6 +468,12 @@ function renderAll() {
   renderMoverChip(activeId);
   renderButtons();
   renderLog();
+  // 3D dressing: tilt + meeple sprites over the same interactive SVG
+  document.body.classList.toggle('view3d', ui.view3d);
+  setMeeplesVisible(ui.view3d);
+  if (ui.view3d) {
+    renderMeeples(state, { activeId, aiTurn: ui.aiTurn }, tileCenterUV);
+  }
 }
 
 function pct(mod, tn) {
@@ -728,16 +743,30 @@ async function playRoll(e) {
 
   // pre-roll beat: read the target
   await beat(450);
-  // tumble
-  for (let i = 0; i < 7 && !ui.skipRoll; i++) {
-    setDie(d1, 1 + Math.floor(Math.random() * 6));
-    setDie(d2, 1 + Math.floor(Math.random() * 6));
-    await sleep(50 + i * 8);
+  // tumble: real 3D dice when available, 2D pip fallback otherwise
+  let did3d = false;
+  if (ui.view3d && !ui.skipRoll) {
+    try {
+      const d3 = await import('./dice3d.js');
+      const area = o.querySelector('.do-dice');
+      area.classList.add('do-dice3d');
+      await d3.play(area, r.a, r.b, 950 / ui.speed, () => ui.skipRoll);
+      did3d = true;
+    } catch {
+      /* WebGL unavailable: fall through to 2D */
+    }
   }
-  setDie(d1, r.a);
-  setDie(d2, r.b);
-  d1.classList.remove('rolling');
-  d2.classList.remove('rolling');
+  if (!did3d) {
+    for (let i = 0; i < 7 && !ui.skipRoll; i++) {
+      setDie(d1, 1 + Math.floor(Math.random() * 6));
+      setDie(d2, 1 + Math.floor(Math.random() * 6));
+      await sleep(50 + i * 8);
+    }
+    setDie(d1, r.a);
+    setDie(d2, r.b);
+    d1.classList.remove('rolling');
+    d2.classList.remove('rolling');
+  }
   const mod = r.mod >= 0 ? `+${r.mod}` : `${r.mod}`;
   const v = r.verdict || {
     text: r.success ? '✓ SUCCESS' : '✗ FAIL',
@@ -899,8 +928,22 @@ function requestHumanDive(defenderTeam) {
 
 async function resolveShot(aim, dive) {
   const mySession = ui.session;
+  const shooterTeam = state.activeTeam;
   const res = await diceAction(() => doShoot(state, dice, aim, dive));
   if (ui.session !== mySession) return;
+  // 3D cutscene: ball flight + keeper dive matching the actual outcome
+  if (ui.view3d && res.ok && res.outcome) {
+    try {
+      const gs = await import('./goalscene.js');
+      await gs.playGoalScene(
+        { aim, dive, outcome: res.outcome, shooterTeam },
+        ui.speed
+      );
+    } catch {
+      /* WebGL unavailable */
+    }
+    if (ui.session !== mySession) return;
+  }
   if (res.outcome === 'goal') await banner('⚽ GOAL!!!', 'goal', 1800);
   else if (res.outcome === 'save') await banner('🧤 SAVED!', 'save');
   else if (res.outcome === 'rebound') await banner('💥 Off the frame!', 'save');
@@ -1022,6 +1065,20 @@ $('btn-speed').addEventListener('click', () => {
 $('btn-pause').addEventListener('click', () => {
   ui.paused = !ui.paused;
   $('btn-pause').textContent = ui.paused ? '▶' : '⏸';
+});
+$('btn-view3d').addEventListener('click', () => {
+  ui.view3d = !ui.view3d;
+  localStorage.setItem('gs-view3d', ui.view3d ? '1' : '0');
+  $('btn-view3d').textContent = ui.view3d ? '3D' : '2D';
+  if (state) renderAll();
+});
+$('btn-view3d').textContent = ui.view3d ? '3D' : '2D';
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (state && $('screen-match').classList.contains('visible')) renderAll();
+  }, 120);
 });
 $('btn-help').addEventListener('click', () => $('help').classList.add('visible'));
 $('help-close').addEventListener('click', () => $('help').classList.remove('visible'));

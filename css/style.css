@@ -90,6 +90,8 @@ button.primary { background: var(--accent); color: #201700; border-color: var(--
   display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
   text-align: left; padding: 8px 10px; line-height: 1.2;
 }
+.pcard .portrait { align-self: center; border-radius: 8px; }
+.assign-row .portrait { flex: none; width: 36px; height: 36px; border-radius: 6px; }
 .pcard:not(:disabled):hover { border-color: var(--accent); }
 .pc-name { font-size: 0.88rem; }
 .pc-stats { color: var(--muted); font-size: 0.72rem; display: flex; flex-wrap: wrap; gap: 2px 8px; }
@@ -187,8 +189,46 @@ button.primary { background: var(--accent); color: #201700; border-color: var(--
 #board-wrap {
   position: relative; min-width: 0; min-height: 0;
   display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
 }
 #board { width: 100%; height: 100%; }
+
+/* ---------------- 3D view: tilted table + standing meeples ---------------- */
+body.view3d #board {
+  transform: rotateX(38deg) scale(1.14); /* pure affine — meeples.js matches it */
+  transition: transform 0.4s ease;
+}
+body.view3d #board .piece,
+body.view3d #board .ball { opacity: 0; pointer-events: none; }
+#meeple-layer { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+body:not(.view3d) #meeple-layer { display: none; }
+.meeple {
+  position: absolute; pointer-events: auto; cursor: pointer;
+  transition: left 0.45s ease, top 0.45s ease;
+}
+.meeple svg { width: 100%; height: 100%; overflow: visible; }
+.meeple-active svg { animation: meeple-bob 1.3s ease-in-out infinite; }
+.meeple-active .meeple-body { filter: drop-shadow(0 0 5px rgba(255,255,255,0.9)); }
+.meeple-ai-active .meeple-body { filter: drop-shadow(0 0 4px rgba(255,255,255,0.45)); }
+@keyframes meeple-bob { 50% { transform: translateY(-5px); } }
+.meeple-ball {
+  position: absolute; pointer-events: none;
+  transition: left 0.45s ease, top 0.45s ease;
+}
+.meeple-ball svg { width: 100%; height: 100%; }
+
+/* 3D dice canvas inside the roll cinematic */
+.do-dice.do-dice3d { width: 250px; height: 120px; margin: 8px auto 2px; display: block; }
+.do-dice.do-dice3d canvas { width: 100%; height: 100%; display: block; }
+.do-dice.do-dice3d .die { display: none; }
+
+/* fullscreen shot cutscene */
+#cutscene {
+  position: fixed; inset: 0; z-index: 9; display: none;
+  background: #0a140c; cursor: pointer;
+}
+#cutscene.visible { display: block; }
+#cutscene canvas { width: 100%; height: 100%; display: block; }
 
 /* ---------------- Board SVG ---------------- */
 .grass-bg { fill: #14301a; }
