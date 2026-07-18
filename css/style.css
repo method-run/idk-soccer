@@ -200,6 +200,28 @@ body.view3d #board {
 }
 body.view3d #board .piece,
 body.view3d #board .ball { opacity: 0; pointer-events: none; }
+
+/* natural materials: wooden tabletop, felt-toned pitch, soft warm light */
+body.view3d #board-wrap {
+  background:
+    repeating-linear-gradient(90deg,
+      rgba(0, 0, 0, 0.07) 0 2px, transparent 2px 84px),
+    linear-gradient(180deg, #6d4a2a, #55381f 55%, #452c17);
+}
+body.view3d .grass-bg { fill: transparent; }
+body.view3d .stripe-a { fill: #5f7f4c; }
+body.view3d .stripe-b { fill: #587847; }
+body.view3d .grid { stroke: rgba(40, 28, 12, 0.14); }
+body.view3d .chalk { stroke: rgba(246, 238, 218, 0.8); }
+body.view3d .goal-box { fill: #3e2a17; stroke: #e8dcc4; }
+body.view3d .net { stroke: rgba(240, 230, 205, 0.3); }
+body.view3d #board-wrap::after {
+  content: '';
+  position: absolute; inset: 0; pointer-events: none; z-index: 4;
+  background:
+    linear-gradient(165deg, rgba(255, 243, 205, 0.12), transparent 45%),
+    radial-gradient(ellipse 120% 90% at 50% 30%, transparent 55%, rgba(20, 10, 4, 0.28));
+}
 #meeple-layer { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
 body:not(.view3d) #meeple-layer { display: none; }
 .meeple {

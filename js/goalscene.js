@@ -24,10 +24,14 @@ function buildScene(shooterTeam) {
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0x0a140c, 12, 30);
   scene.background = new THREE.Color(0x0a140c);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.75));
-  const key = new THREE.DirectionalLight(0xffffff, 1.8);
-  key.position.set(4, 8, 6);
+  // late-afternoon light: warm key, cool sky fill
+  scene.add(new THREE.AmbientLight(0xfff0da, 0.65));
+  const key = new THREE.DirectionalLight(0xffe6b8, 1.7);
+  key.position.set(-5, 9, 7);
   scene.add(key);
+  const fill = new THREE.DirectionalLight(0xa8c4e8, 0.4);
+  fill.position.set(6, 4, -3);
+  scene.add(fill);
 
   const grass = new THREE.Mesh(
     new THREE.PlaneGeometry(60, 60),

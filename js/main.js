@@ -338,6 +338,7 @@ function startMatch(mode, rosters = null) {
     onTileHover: handleTileHover,
   });
   initMeeples($('board-wrap'), $('board'), { onPlayerClick: handlePlayerClick });
+  if (ui.view3d) warm3d(); // pre-load the 3D dice so the first roll is seamless
   $('log').innerHTML = '';
   $('dice-tray').innerHTML = '';
   show('screen-match');
@@ -713,10 +714,19 @@ async function diceAction(exec) {
   return result;
 }
 
+// three.js dice: warmed up at match start; webglOK memoizes capability so a
+// machine without WebGL falls back to 2D pips exactly once, silently.
+let dice3dReady = null;
+let webglOK = null;
+function warm3d() {
+  if (!dice3dReady) dice3dReady = import('./dice3d.js').catch(() => null);
+}
+
 async function playRoll(e) {
   const r = e.roll;
   const o = $('dice-overlay');
   ui.skipRoll = false;
+  const use3d = ui.view3d && webglOK !== false;
   const oppLine = r.opp
     ? `<div class="do-opp">${dieFace(r.opp.a)}${dieFace(r.opp.b)}
        <span>+${r.opp.mod} = ${r.opp.total}</span></div>`
@@ -727,7 +737,9 @@ async function playRoll(e) {
       <div class="do-target">Need <b>${r.tn}</b></div>
       <div class="do-math">${r.tnLabel || ''}</div>
       ${oppLine}
-      <div class="do-dice">${dieFace(0, 'rolling')}${dieFace(0, 'rolling')}</div>
+      <div class="do-dice${use3d ? ' do-dice3d' : ''}">${
+        use3d ? '' : dieFace(0, 'rolling') + dieFace(0, 'rolling')
+      }</div>
       <div class="do-mod">${r.modLabel || `+${r.mod}`}</div>
       <div class="do-result"></div>
     </div>`;
@@ -741,22 +753,33 @@ async function playRoll(e) {
     for (let t = 0; t < ms && !ui.skipRoll; t += step) await sleep(step);
   };
 
-  // pre-roll beat: read the target
-  await beat(450);
-  // tumble: real 3D dice when available, 2D pip fallback otherwise
+  // One seamless roll: in 3D the dice are already tumbling while the target
+  // number is read, then settle — no 2D pre-phase.
   let did3d = false;
-  if (ui.view3d && !ui.skipRoll) {
-    try {
-      const d3 = await import('./dice3d.js');
-      const area = o.querySelector('.do-dice');
-      area.classList.add('do-dice3d');
-      await d3.play(area, r.a, r.b, 950 / ui.speed, () => ui.skipRoll);
-      did3d = true;
-    } catch {
-      /* WebGL unavailable: fall through to 2D */
+  if (use3d) {
+    warm3d();
+    const mod = await dice3dReady;
+    if (mod) {
+      try {
+        const area = o.querySelector('.do-dice');
+        const anim = mod.play(area, r.a, r.b, (450 + 950) / ui.speed, () => ui.skipRoll);
+        await beat(450); // read the target while the dice tumble
+        await anim;
+        webglOK = true;
+        did3d = true;
+      } catch {
+        webglOK = false;
+      }
+    } else {
+      webglOK = false;
     }
-  }
-  if (!did3d) {
+    if (!did3d) {
+      // late fallback: show settled 2D dice in place
+      o.querySelector('.do-dice').innerHTML = dieFace(r.a) + dieFace(r.b);
+      await beat(500);
+    }
+  } else {
+    await beat(450);
     for (let i = 0; i < 7 && !ui.skipRoll; i++) {
       setDie(d1, 1 + Math.floor(Math.random() * 6));
       setDie(d2, 1 + Math.floor(Math.random() * 6));

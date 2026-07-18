@@ -59,10 +59,14 @@ function init() {
   camera = new THREE.PerspectiveCamera(38, 2.2, 0.1, 50);
   camera.position.set(0, 3.4, 4.4);
   camera.lookAt(0, 0.2, 0);
-  scene.add(new THREE.AmbientLight(0xffffff, 0.9));
-  const key = new THREE.DirectionalLight(0xffffff, 1.6);
-  key.position.set(2, 5, 3);
+  // warm, natural tabletop light
+  scene.add(new THREE.AmbientLight(0xfff4e0, 0.8));
+  const key = new THREE.DirectionalLight(0xffeccb, 1.5);
+  key.position.set(-2.5, 5, 3);
   scene.add(key);
+  const fill = new THREE.DirectionalLight(0xbcd0ff, 0.35);
+  fill.position.set(3, 2, -2);
+  scene.add(fill);
   const mats = (order) => order.map((v) => new THREE.MeshStandardMaterial({ map: pipTexture(v) }));
   for (const x of [-0.85, 0.85]) {
     const die = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.1, 1.1), mats([3, 4, 1, 6, 2, 5]));

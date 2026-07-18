@@ -3,8 +3,17 @@
 // positioned with the same affine map. All interaction still happens on the
 // SVG layers underneath; sprites forward their clicks.
 
-import { LOOKS, fallbackLook } from './portraits.js';
 import { TEAM_META } from './data.js';
+
+// warm hex mixing for wood-toy shading
+function mix(hex, target, k) {
+  const n = parseInt(hex.slice(1), 16);
+  const t = parseInt(target.slice(1), 16);
+  const ch = (sh) => Math.round(((n >> sh) & 255) * (1 - k) + ((t >> sh) & 255) * k);
+  return `#${((ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).padStart(6, '0')}`;
+}
+const lighten = (h, k) => mix(h, '#fff3d8', k);
+const darken = (h, k) => mix(h, '#1a0e06', k);
 
 export const TILT_DEG = 38;
 export const TILT_SCALE = 1.14;
@@ -45,31 +54,41 @@ function project(u, v) {
   };
 }
 
+// Classic wooden meeple: one solid silhouette in team color with warm
+// top-left lighting, a soft offset contact shadow, faint grain, and an
+// engraved number. Keepers get a painted gold base ring.
 function meepleSVG(p) {
-  const look = LOOKS[p.lookId] || fallbackLook(p.name);
-  const skin = { pale: '#f2cfae', light: '#eebd93', tan: '#d9a06b', brown: '#a06a3f', deep: '#71482a' }[look.skin] || '#eebd93';
-  const hair = { black: '#191919', dark: '#2e2118', brown: '#5a3d22', blond: '#d9b04a', ginger: '#b5541e' }[look.hair] || '#2e2118';
-  const meta = TEAM_META[p.team];
+  const c = TEAM_META[p.team].color;
   const gk = p.role === 'GK';
+  const gid = `mg-${p.team}-${p.num}`;
   return `<svg viewBox="0 0 40 52" aria-hidden="true">
-    <ellipse cx="20" cy="48" rx="13" ry="3.6" fill="rgba(0,0,0,0.35)"/>
-    <path class="meeple-body" d="M20 14
-      C 26 14 28 18 27 22
-      C 31 24 34 28 35 34
-      C 36 40 33 42 30 41
-      C 28 40.4 26.5 39 25.5 37.5
-      L 27 46 Q 20 49 13 46 L 14.5 37.5
-      C 13.5 39 12 40.4 10 41
-      C 7 42 4 40 5 34
-      C 6 28 9 24 13 22
-      C 12 18 14 14 20 14 Z"
-      fill="${meta.color}" stroke="${gk ? '#f2c14e' : 'rgba(0,0,0,0.5)'}" stroke-width="${gk ? 2 : 1.2}"/>
-    <circle cx="20" cy="10" r="7" fill="${skin}"/>
-    <path d="M13.6 9 q1 -5.6 6.4 -5.6 q5.4 0 6.4 5.6 q-2.6 -3 -6.4 -3 q-3.8 0 -6.4 3 z" fill="${hair}"/>
-    <circle cx="17.6" cy="10.4" r="0.9" fill="#111"/>
-    <circle cx="22.4" cy="10.4" r="0.9" fill="#111"/>
-    <text x="20" y="36" text-anchor="middle" font-size="11" font-weight="800"
-      fill="#fff" stroke="rgba(0,0,0,0.4)" stroke-width="2" paint-order="stroke">${p.num}</text>
+    <defs>
+      <linearGradient id="${gid}" x1="0.15" y1="0" x2="0.6" y2="1">
+        <stop offset="0" stop-color="${lighten(c, 0.32)}"/>
+        <stop offset="0.5" stop-color="${c}"/>
+        <stop offset="1" stop-color="${darken(c, 0.3)}"/>
+      </linearGradient>
+    </defs>
+    <ellipse cx="22" cy="48.3" rx="12" ry="3" fill="rgba(26,14,6,0.32)"/>
+    ${gk ? '<ellipse cx="20" cy="46.8" rx="10.5" ry="2.4" fill="none" stroke="#d8a93c" stroke-width="2"/>' : ''}
+    <path class="meeple-body" d="M20 3.5
+      c4.2 0 6.8 2.9 6.8 6.1 c0 2 -0.9 3.7 -2.3 4.9
+      c6 1.2 10.3 3.8 12.4 7 c1.7 2.6 0.8 5.2 -1.7 5.9
+      c-2.3 0.7 -5.2 -0.3 -7.5 -2.1
+      c-0.3 2.8 0.5 5.6 2.1 8.9 c1.5 3.1 0.3 4.9 -2.6 4.9
+      h-3.2 c-1.6 0 -2.6 -0.9 -2.8 -2.4 l-1.2 -7.3 -1.2 7.3
+      c-0.2 1.5 -1.2 2.4 -2.8 2.4 h-3.2
+      c-2.9 0 -4.1 -1.8 -2.6 -4.9 c1.6 -3.3 2.4 -6.1 2.1 -8.9
+      c-2.3 1.8 -5.2 2.8 -7.5 2.1 c-2.5 -0.7 -3.4 -3.3 -1.7 -5.9
+      c2.1 -3.2 6.4 -5.8 12.4 -7 c-1.4 -1.2 -2.3 -2.9 -2.3 -4.9
+      c0 -3.2 2.6 -6.1 6.8 -6.1 z"
+      fill="url(#${gid})" stroke="${darken(c, 0.5)}" stroke-width="0.9"/>
+    <path d="M14.8 8.4 q1.5 -3.1 4.6 -3.3" stroke="${lighten(c, 0.55)}"
+      stroke-width="1.6" fill="none" stroke-linecap="round" opacity="0.8"/>
+    <path d="M9.5 27.5 q10.5 4.2 21 0 M12.5 32 q7.5 2.8 15 0" stroke="${darken(c, 0.35)}"
+      stroke-width="0.7" fill="none" opacity="0.35"/>
+    <text x="20" y="30.5" text-anchor="middle" font-size="10.5" font-weight="800"
+      fill="${darken(c, 0.55)}" opacity="0.85">${p.num}</text>
   </svg>`;
 }
 
