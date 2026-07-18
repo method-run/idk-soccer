@@ -567,31 +567,37 @@ export function doShoot(state, dice, aim, dive) {
     outcome = 'goal';
     logEvent(state, 'goal', 'DOUBLES! An unstoppable screamer!');
   } else if (r.success) {
+    // Graded save: the closer the dive to the shot, the better the odds —
+    // exact cell is a certain save, the opposite corner (3 cells off on the
+    // 3x2 grid) has no chance, and in between the keeper rolls
+    // 2d6+CTL vs 6 + 3 per cell of distance.
     const diveName = `${dive.high ? 'high' : 'low'} ${['left', 'center', 'right'][dive.col]}`;
-    if (dive.col === aim.col && dive.high === aim.high) {
+    const off =
+      Math.abs(dive.col - aim.col) + Math.abs((dive.high ? 1 : 0) - (aim.high ? 1 : 0));
+    if (off === 0) {
       outcome = 'save';
       logEvent(state, 'save', `Keeper dove ${diveName} — right there! SAVED`);
-    } else if (dive.col === aim.col) {
-      keeperRoll = dice.check(keeper.ctl, 8);
+    } else if (off >= 3) {
+      outcome = 'goal';
+      logEvent(state, 'goal', `Keeper dove ${diveName} — completely the wrong way! GOAL!`);
+    } else {
+      keeperRoll = dice.check(keeper.ctl, 6 + 3 * off);
       Object.assign(keeperRoll, {
-        title: 'Keeper scramble',
-        tnLabel: '8 base',
+        title: 'Keeper save',
+        tnLabel: `6 base + ${3 * off} (dove ${off} cell${off > 1 ? 's' : ''} off the shot)`,
         modLabel: `CTL +${keeper.ctl}`,
       });
       if (keeperRoll.success) {
         outcome = 'save';
         logEvent(state, 'save',
-          `Keeper dove ${diveName}, scrambles: ${keeperRoll.a}+${keeperRoll.b}+${keeperRoll.mod}=${keeperRoll.total} vs 8 — SAVED`,
+          `Keeper dove ${diveName}, at full stretch (${off} off): ${keeperRoll.a}+${keeperRoll.b}+${keeperRoll.mod}=${keeperRoll.total} vs ${keeperRoll.tn} — SAVED`,
           keeperRoll);
       } else {
         outcome = 'goal';
         logEvent(state, 'goal',
-          `Keeper dove ${diveName}, scrambles: ${keeperRoll.total} vs 8 — not enough. GOAL!`,
+          `Keeper dove ${diveName}, at full stretch (${off} off): ${keeperRoll.total} vs ${keeperRoll.tn} — not enough. GOAL!`,
           keeperRoll);
       }
-    } else {
-      outcome = 'goal';
-      logEvent(state, 'goal', `Keeper dove ${diveName} — wrong way! GOAL!`);
     }
   } else if (r.margin === -1) {
     outcome = 'rebound';

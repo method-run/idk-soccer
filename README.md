@@ -25,8 +25,8 @@ npm test
   7 footballers (1 GK + 6) from a shared 28-player pool in snake order,
   then arrange them into formation slots before kickoff.
 - **vs Computer** — you are the Reds, a heuristic AI plays the Blues.
-- **2 Players** — hotseat on one device; keeper dives use a blind
-  hand-the-device-over overlay.
+- **2 Players** — hotseat on one device; the defender picks keeper dives
+  on the on-field goal (honor system: don't watch the aim too closely).
 - **Watch · CPU vs CPU** — spectator mode with a 1×/2×/4× speed toggle;
   handy for eyeballing balance changes.
 

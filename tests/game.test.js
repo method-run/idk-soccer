@@ -230,9 +230,10 @@ test('shot past a wrong-way keeper is a goal and resets to kickoff', () => {
   striker.x = 3;
   striker.y = 2;
   s.ball = { x: 3, y: 2, carrier: striker.id };
-  // dist 2 -> TN 8 center. Roll 4+5+3 = 12: accurate, not doubles.
+  // corner aim TN 9. Roll 4+5+3 = 12: accurate, not doubles. Keeper dives
+  // the opposite corner: 3 cells off -> no chance.
   const dice = stubDice([4, 5]);
-  const res = doShoot(s, dice, { col: 1, high: false }, { col: 0, high: false });
+  const res = doShoot(s, dice, { col: 2, high: false }, { col: 0, high: true });
   assert.equal(res.outcome, 'goal');
   assert.equal(s.score.home, 1);
   assert.ok(s.ball.carrier?.startsWith('away-'), 'away kicks off after conceding');
@@ -565,7 +566,8 @@ test('shot rolls carry outcome verdicts (GOAL!/SAVED, not SUCCESS/FAIL)', () => 
   striker.y = 2;
   s.ball = { x: 3, y: 2, carrier: striker.id };
   const dice = stubDice([4, 5]);
-  const res = doShoot(s, dice, { col: 1, high: false }, { col: 0, high: false });
+  // opposite-corner dive: 3 cells off -> goal, no keeper roll
+  const res = doShoot(s, dice, { col: 2, high: false }, { col: 0, high: true });
   assert.match(res.roll.verdict.text, /GOAL/);
 
   // exact-dive save
@@ -578,4 +580,28 @@ test('shot rolls carry outcome verdicts (GOAL!/SAVED, not SUCCESS/FAIL)', () => 
   s2.ball = { x: 3, y: 2, carrier: st2.id };
   const res2 = doShoot(s2, stubDice([4, 5]), { col: 1, high: false }, { col: 1, high: false });
   assert.match(res2.roll.verdict.text, /SAVED/);
+});
+
+test('graded saves: keeper roll target scales with dive distance', () => {
+  const setup = () => {
+    const s = newMatch();
+    const st = getPlayer(s, 'home-7');
+    const occ = occupantAt(s, 3, 2);
+    if (occ) { occ.x = 0; occ.y = 0; }
+    st.x = 3;
+    st.y = 2;
+    s.ball = { x: 3, y: 2, carrier: st.id };
+    return s;
+  };
+  // 1 cell off: TN 9. Away keeper CTL +3, roll 4+5+3=12 -> SAVED.
+  const s1 = setup();
+  const r1 = doShoot(s1, stubDice([4, 5]), { col: 1, high: false }, { col: 1, high: true });
+  assert.equal(r1.keeperRoll.tn, 9);
+  assert.equal(r1.outcome, 'save');
+
+  // 2 cells off: TN 12. Roll 2+3+3=8 -> GOAL. (shot 6+5+3=14 accurate)
+  const s2 = setup();
+  const r2 = doShoot(s2, stubDice([6, 5, 2, 3]), { col: 2, high: false }, { col: 1, high: true });
+  assert.equal(r2.keeperRoll.tn, 12);
+  assert.equal(r2.outcome, 'goal');
 });

@@ -857,7 +857,7 @@ async function handleRingAction(key) {
 
 async function handleGoalCell(cell, side) {
   if (side !== goalSideFor(state.activeTeam)) return;
-  // Defender picking a dive on the goal itself (PvE, computer shooting).
+  // Defender picking a dive on the goal itself.
   if (ui.phase === 'pick-dive' && ui.diveResolve) {
     const resolve = ui.diveResolve;
     ui.diveResolve = null;
@@ -868,11 +868,21 @@ async function handleGoalCell(cell, side) {
   if (ui.phase !== 'aim-shot') return;
   ui.phase = 'busy';
   renderAll();
-  const shooterTeam = state.activeTeam;
   let dive;
   if (ui.mode === 'pve') dive = aiPickDive(state, dice);
-  else dive = await pvpDivePick(shooterTeam);
+  else dive = await requestHumanDive(state.activeTeam === 'home' ? 'away' : 'home');
   await resolveShot(cell, dive);
+}
+
+// The defending human picks their dive on the goal's six cells.
+function requestHumanDive(defenderTeam) {
+  return new Promise((resolve) => {
+    ui.diveResolve = resolve;
+    ui.phase = 'pick-dive';
+    renderAll();
+    banner(`🧤 ${TEAM_META[defenderTeam].name} keeper — tap a goal cell to dive!`,
+      `team-${defenderTeam}`, 1500);
+  });
 }
 
 async function resolveShot(aim, dive) {
@@ -885,36 +895,6 @@ async function resolveShot(aim, dive) {
   else await banner('Off target…', '', 1000);
   if (ui.session !== mySession) return;
   beginTurn();
-}
-
-function pvpDivePick(shooterTeam) {
-  const defender = shooterTeam === 'home' ? 'away' : 'home';
-  return new Promise((resolve) => {
-    overlay(`
-      <h2 class="team-${defender}">${TEAM_META[defender].name} keeper!</h2>
-      <p>${TEAM_META[shooterTeam].name} are shooting. No peeking at their aim —
-      pick where your keeper dives.</p>
-      <div class="dive-grid" id="dive-grid"></div>`);
-    buildDiveGrid($('dive-grid'), (cell) => {
-      hideOverlay();
-      resolve(cell);
-    });
-  });
-}
-
-// Laid out like the on-screen goal: 3 rows (top/center/bottom posts) by
-// 2 columns (low = near the mouth, high = top shelf).
-function buildDiveGrid(grid, onPick) {
-  const names = ['Top', 'Center', 'Bottom'];
-  for (let col = 0; col < 3; col++) {
-    for (const high of [false, true]) {
-      const b = document.createElement('button');
-      b.className = 'dive-cell';
-      b.textContent = `${names[col]} · ${high ? 'High' : 'Low'}`;
-      b.addEventListener('click', () => onPick({ col, high }));
-      grid.appendChild(b);
-    }
-  }
 }
 
 // Buttons
@@ -976,13 +956,7 @@ async function runAiTurn() {
     } else if (act.type === 'shoot') {
       let dive;
       if (humanDefends(state.activeTeam)) {
-        // Pick the dive directly on the goal's six cells.
-        dive = await new Promise((resolve) => {
-          ui.diveResolve = resolve;
-          ui.phase = 'pick-dive';
-          renderAll();
-          banner('🧤 Shot incoming — tap a goal cell to dive!', 'team-home', 1500);
-        });
+        dive = await requestHumanDive(state.activeTeam === 'home' ? 'away' : 'home');
       } else {
         dive = aiPickDive(state, dice);
       }
