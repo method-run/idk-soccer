@@ -540,6 +540,16 @@ export function defendingKeeper(state, attackingTeam) {
   );
 }
 
+// How far the defending keeper stands from their goal mouth (Chebyshev to
+// the nearest mouth tile). 0 = on the line; 3+ = stranded, no save possible.
+export function keeperDistance(state, attackingTeam) {
+  const keeper = defendingKeeper(state, attackingTeam);
+  const gy = attackingTeam === 'home' ? 0 : H - 1;
+  return Math.min(...GOAL_COLS.map((gx) => cheb(keeper.x, keeper.y, gx, gy)));
+}
+
+export const KEEPER_STRANDED = 3;
+
 export function doShoot(state, dice, aim, dive) {
   if (!canShoot(state)) return { ok: false, reason: 'cannot shoot' };
   const shooter = carrier(state);
@@ -563,40 +573,51 @@ export function doShoot(state, dice, aim, dive) {
   );
   let outcome;
   let keeperRoll = null;
+  const kd = keeperDistance(state, shooter.team);
   if (r.success && r.doubles) {
     outcome = 'goal';
     logEvent(state, 'goal', 'DOUBLES! An unstoppable screamer!');
   } else if (r.success) {
-    // Graded save: the closer the dive to the shot, the better the odds —
-    // exact cell is a certain save, the opposite corner (3 cells off on the
-    // 3x2 grid) has no chance, and in between the keeper rolls
-    // 2d6+CTL vs 6 + 3 per cell of distance.
-    const diveName = `${dive.high ? 'high' : 'low'} ${['left', 'center', 'right'][dive.col]}`;
-    const off =
-      Math.abs(dive.col - aim.col) + Math.abs((dive.high ? 1 : 0) - (aim.high ? 1 : 0));
-    if (off === 0) {
-      outcome = 'save';
-      logEvent(state, 'save', `Keeper dove ${diveName} — right there! SAVED`);
-    } else if (off >= 3) {
+    // Graded save: the closer the dive to the shot — and the closer the
+    // keeper stands to their line — the better the odds. Exact cell from
+    // on the line is a certain save; the opposite corner (3 cells off) has
+    // no chance; a keeper 3+ squares upfield is stranded and can't save at
+    // all. In between: 2d6+CTL vs 8 + 3/cell off + 2/square off the line.
+    if (kd >= KEEPER_STRANDED || !dive) {
       outcome = 'goal';
-      logEvent(state, 'goal', `Keeper dove ${diveName} — completely the wrong way! GOAL!`);
+      logEvent(state, 'goal',
+        `Keeper is stranded ${kd} squares upfield — nobody home. GOAL!`);
     } else {
-      keeperRoll = dice.check(keeper.ctl, 8 + 3 * off);
-      Object.assign(keeperRoll, {
-        title: 'Keeper save',
-        tnLabel: `8 base + ${3 * off} (dove ${off} cell${off > 1 ? 's' : ''} off the shot)`,
-        modLabel: `CTL +${keeper.ctl}`,
-      });
-      if (keeperRoll.success) {
+      const diveName = `${dive.high ? 'high' : 'low'} ${['left', 'center', 'right'][dive.col]}`;
+      const off =
+        Math.abs(dive.col - aim.col) + Math.abs((dive.high ? 1 : 0) - (aim.high ? 1 : 0));
+      const posNote = kd ? `, ${kd} off their line` : '';
+      if (off === 0 && kd === 0) {
         outcome = 'save';
-        logEvent(state, 'save',
-          `Keeper dove ${diveName}, at full stretch (${off} off): ${keeperRoll.a}+${keeperRoll.b}+${keeperRoll.mod}=${keeperRoll.total} vs ${keeperRoll.tn} — SAVED`,
-          keeperRoll);
-      } else {
+        logEvent(state, 'save', `Keeper dove ${diveName} — right there! SAVED`);
+      } else if (off >= 3) {
         outcome = 'goal';
-        logEvent(state, 'goal',
-          `Keeper dove ${diveName}, at full stretch (${off} off): ${keeperRoll.total} vs ${keeperRoll.tn} — not enough. GOAL!`,
-          keeperRoll);
+        logEvent(state, 'goal', `Keeper dove ${diveName} — completely the wrong way! GOAL!`);
+      } else {
+        keeperRoll = dice.check(keeper.ctl, 8 + 3 * off + 2 * kd);
+        Object.assign(keeperRoll, {
+          title: 'Keeper save',
+          tnLabel: `8 base${off ? ` + ${3 * off} (${off} cell${off > 1 ? 's' : ''} off the shot)` : ''}${
+            kd ? ` + ${2 * kd} (off their line)` : ''
+          }`,
+          modLabel: `CTL +${keeper.ctl}`,
+        });
+        if (keeperRoll.success) {
+          outcome = 'save';
+          logEvent(state, 'save',
+            `Keeper dove ${diveName} (${off} off${posNote}): ${keeperRoll.a}+${keeperRoll.b}+${keeperRoll.mod}=${keeperRoll.total} vs ${keeperRoll.tn} — SAVED`,
+            keeperRoll);
+        } else {
+          outcome = 'goal';
+          logEvent(state, 'goal',
+            `Keeper dove ${diveName} (${off} off${posNote}): ${keeperRoll.total} vs ${keeperRoll.tn} — not enough. GOAL!`,
+            keeperRoll);
+        }
       }
     }
   } else if (r.margin === -1) {
@@ -621,6 +642,8 @@ export function doShoot(state, dice, aim, dive) {
       : { text: '⚽ GOAL!', tone: 'ok' };
   } else if (outcome === 'save') {
     r.verdict = { text: '🧤 SAVED — keeper guessed right!', tone: 'mid' };
+  } else if (kd >= KEEPER_STRANDED) {
+    r.verdict = { text: '⚽ GOAL! Keeper stranded — empty net!', tone: 'ok' };
   } else {
     r.verdict = { text: '⚽ GOAL! Keeper went the wrong way!', tone: 'ok' };
   }

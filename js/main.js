@@ -8,7 +8,7 @@ import {
   doMove, doPass, doSteal, doShoot, canSteal, canShoot, canPass,
   setFormation, selectMover, driftPreview, endTurn, cheb, stepsLeft,
   shotDistance, shotTN, passTN, stealTN, PASS_MAX, getFormation, supportMod,
-  movePath, occupantAt,
+  movePath, occupantAt, keeperDistance, KEEPER_STRANDED,
 } from './game.js';
 import { aiChooseFormation, aiChooseMove, aiChooseAction, aiPickDive, p2d6 } from './ai.js';
 import { initBoard, render, renderPathPreview, goalSideFor } from './render.js';
@@ -157,6 +157,9 @@ async function maybeAiPick() {
 }
 
 function renderDraft() {
+  const turnTeam = draftDone() ? null : draftTeamNow();
+  $('screen-draft').classList.toggle('for-home', turnTeam === 'home');
+  $('screen-draft').classList.toggle('for-away', turnTeam === 'away');
   if (draftDone()) {
     $('draft-sub').textContent = 'Draft complete!';
   } else {
@@ -228,6 +231,8 @@ function startAssign() {
 
 function showAssignScreen() {
   const team = assign.queue[assign.idx];
+  $('screen-assign').classList.toggle('for-home', team === 'home');
+  $('screen-assign').classList.toggle('for-away', team === 'away');
   assign.current = autoLineup(draft.picks[team]);
   assign.selected = null;
   $('assign-title').innerHTML = `<span class="team-${team}">${TEAM_META[team].name}</span>: set your lineup`;
@@ -588,7 +593,12 @@ function hint(p, hasBall) {
   if (ui.phase === 'pick-dive') return 'SHOT INCOMING — tap a goal cell to dive your keeper!';
   if (ui.aiTurn) return 'Computer is thinking…';
   if (ui.phase === 'aim-pass') return 'Tap a square (or a teammate) to pass there — odds shown';
-  if (ui.phase === 'aim-shot') return 'Tap a goal cell to aim (accuracy shown)';
+  if (ui.phase === 'aim-shot') {
+    const kd = keeperDistance(state, state.activeTeam);
+    if (kd >= KEEPER_STRANDED) return 'Keeper is STRANDED — hit the frame and it counts!';
+    if (kd > 0) return `Tap a goal cell to aim — keeper is ${kd} off their line (+${2 * kd} to their save)`;
+    return 'Tap a goal cell to aim (accuracy shown)';
+  }
   const left = stepsLeft(state);
   if (!state.moved && !state.actionUsed) {
     return hasBall
@@ -868,9 +878,11 @@ async function handleGoalCell(cell, side) {
   if (ui.phase !== 'aim-shot') return;
   ui.phase = 'busy';
   renderAll();
-  let dive;
-  if (ui.mode === 'pve') dive = aiPickDive(state, dice);
-  else dive = await requestHumanDive(state.activeTeam === 'home' ? 'away' : 'home');
+  let dive = null;
+  if (keeperDistance(state, state.activeTeam) < KEEPER_STRANDED) {
+    if (ui.mode === 'pve') dive = aiPickDive(state, dice);
+    else dive = await requestHumanDive(state.activeTeam === 'home' ? 'away' : 'home');
+  }
   await resolveShot(cell, dive);
 }
 
@@ -954,11 +966,13 @@ async function runAiTurn() {
       await sleep(600);
       if (stale()) return;
     } else if (act.type === 'shoot') {
-      let dive;
-      if (humanDefends(state.activeTeam)) {
-        dive = await requestHumanDive(state.activeTeam === 'home' ? 'away' : 'home');
-      } else {
-        dive = aiPickDive(state, dice);
+      let dive = null;
+      if (keeperDistance(state, state.activeTeam) < KEEPER_STRANDED) {
+        if (humanDefends(state.activeTeam)) {
+          dive = await requestHumanDive(state.activeTeam === 'home' ? 'away' : 'home');
+        } else {
+          dive = aiPickDive(state, dice);
+        }
       }
       if (stale()) return;
       await resolveShot(act.aim, dive);

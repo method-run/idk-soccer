@@ -58,6 +58,15 @@ button.primary { background: var(--accent); color: #201700; border-color: var(--
   display: flex; justify-content: space-between; align-items: flex-start;
   padding: 12px 16px; background: var(--panel); gap: 12px;
 }
+
+/* Whole setup screen tints to whoever is picking — no wrong-team picks. */
+#screen-draft, #screen-assign { transition: background-color 0.35s ease; }
+#screen-draft.for-home, #screen-assign.for-home { background-color: #331411; }
+#screen-draft.for-away, #screen-assign.for-away { background-color: #101b36; }
+.for-home .setup-head { background: var(--home-dark); border-bottom: 3px solid var(--home); }
+.for-away .setup-head { background: var(--away-dark); border-bottom: 3px solid var(--away); }
+.for-home #draft-title, .for-home #assign-title { color: var(--home); }
+.for-away #draft-title, .for-away #assign-title { color: var(--away); }
 .setup-head p { color: var(--muted); font-size: 0.85rem; margin-top: 2px; }
 #draft-quit, #assign-quit { padding: 4px 10px; }
 

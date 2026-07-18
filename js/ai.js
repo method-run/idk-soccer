@@ -7,7 +7,7 @@ import { W, H } from './data.js';
 import {
   activePlayerId, getPlayer, carrier, reachable, cheb, attackMouth,
   canSteal, canShoot, canPass, shotDistance, shotTN, passTN, stealTN,
-  occupantAt, PASS_MAX,
+  occupantAt, PASS_MAX, keeperDistance, KEEPER_STRANDED,
 } from './game.js';
 
 // P(2d6 + mod >= tn)
@@ -87,11 +87,18 @@ export function aiChooseAction(state, dice) {
   const pCorner = p2d6(me.sho, shotTN(dist, cornerAim));
   const pCenter = p2d6(me.sho, shotTN(dist, centerAim));
   // Rough keeper-beat odds: corners dodge the dive more often.
-  const evCorner = pCorner * 0.8;
-  const evCenter = pCenter * 0.6;
-  const aim = evCorner >= evCenter ? cornerAim : centerAim;
+  const kd = keeperDistance(state, me.team);
+  const stranded = kd >= KEEPER_STRANDED;
+  // Beat-the-keeper odds improve as the keeper strays; stranded = automatic.
+  const keeperFactor = stranded ? 1 : Math.min(1, 0.6 + kd * 0.15);
+  const evCorner = pCorner * (stranded ? 1 : Math.min(1, 0.8 + kd * 0.1));
+  const evCenter = pCenter * keeperFactor;
+  // Stranded keeper? Aim center: pure accuracy, no corner penalty needed.
+  const aim = stranded || evCenter >= evCorner ? centerAim : cornerAim;
   const shootEV = Math.max(evCorner, evCenter);
-  if (dist <= 6 && shootEV >= 0.25) return { type: 'shoot', aim };
+  if (dist <= (stranded ? 9 : 6) && shootEV >= (stranded ? 0.15 : 0.25)) {
+    return { type: 'shoot', aim };
+  }
 
   // Pass? Find a teammate meaningfully closer to goal, on a makeable ball.
   const mouth = attackMouth(me.team);

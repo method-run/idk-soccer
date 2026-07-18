@@ -605,3 +605,38 @@ test('graded saves: keeper roll target scales with dive distance', () => {
   assert.equal(r2.keeperRoll.tn, 14);
   assert.equal(r2.outcome, 'goal');
 });
+
+test('keeper position matters: off the line penalizes, stranded concedes', async () => {
+  const { keeperDistance, KEEPER_STRANDED } = await import('../js/game.js');
+  const setup = () => {
+    const s = newMatch();
+    const st = getPlayer(s, 'home-7');
+    const occ = occupantAt(s, 3, 2);
+    if (occ) { occ.x = 0; occ.y = 0; }
+    st.x = 3;
+    st.y = 2;
+    s.ball = { x: 3, y: 2, carrier: st.id };
+    return s;
+  };
+
+  // keeper 2 off the line: exact-cell dive is no longer automatic (TN 12)
+  const s1 = setup();
+  const gk1 = getPlayer(s1, 'away-1');
+  gk1.x = 4;
+  gk1.y = 2; // 2 from the mouth row
+  assert.equal(keeperDistance(s1, 'home'), 2);
+  const r1 = doShoot(s1, stubDice([4, 5, 6, 6, 1, 1]), { col: 1, high: false }, { col: 1, high: false });
+  assert.ok(r1.keeperRoll, 'exact dive off the line still needs a roll');
+  assert.equal(r1.keeperRoll.tn, 12);
+
+  // keeper 3+ away: stranded — accurate shot scores with no dive at all
+  const s2 = setup();
+  const gk2 = getPlayer(s2, 'away-1');
+  gk2.x = 4;
+  gk2.y = 6;
+  assert.ok(keeperDistance(s2, 'home') >= KEEPER_STRANDED);
+  const r2 = doShoot(s2, stubDice([4, 5]), { col: 1, high: false }, null);
+  assert.equal(r2.outcome, 'goal');
+  assert.equal(r2.keeperRoll, null);
+  assert.match(r2.roll.verdict.text, /stranded|Stranded/i);
+});
