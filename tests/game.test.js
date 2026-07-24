@@ -501,8 +501,9 @@ function dribbleSetup() {
 
 test('dribble challenge: winning (or tying) carries you through', () => {
   const { s, me } = dribbleSetup();
-  // support is -1 (defenders back each other up): mine 4+3+1-1=7 vs 3+2+2=7
-  const dice = stubDice([4, 3, 3, 2]);
+  // straightest path crosses the MIDDLE defender (away-3, ctl +2), flanked
+  // by both teammates: support -2. mine 5+4+1-2=8 vs 3+3+2=8 -> tie -> through
+  const dice = stubDice([5, 4, 3, 3]);
   assert.ok(doMove(s, dice, 4, 8).ok);
   assert.equal(s.ball.carrier, me.id, 'kept the ball');
   assert.equal(s.ball.x, 4);

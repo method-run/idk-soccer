@@ -110,6 +110,35 @@ button.primary { background: var(--accent); color: #201700; border-color: var(--
 .tp-charges .pip-on { background: var(--accent); box-shadow: 0 0 4px var(--accent); }
 .tp-charges .pip-off { background: rgba(255, 255, 255, 0.15); }
 
+/* active-player card in the team panel */
+.tp-player {
+  width: 100%; background: rgba(0, 0, 0, 0.28); border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16); padding: 8px; text-align: left;
+  animation: tray-in 0.2s ease;
+}
+.tp-player-head { display: flex; gap: 8px; align-items: center; }
+.tp-player-head .portrait { flex: none; border-radius: 6px; }
+.tp-player-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tp-player-info b { font-size: 0.78rem; line-height: 1.15; }
+.tp-player-info span { display: flex; flex-wrap: wrap; gap: 2px 6px; font-size: 0.68rem; color: var(--muted); }
+.tp-ability-row { display: flex; gap: 4px; margin-top: 7px; }
+.tp-ability-btn {
+  flex: 1; padding: 5px 4px; font-size: 0.72rem; font-weight: 700;
+  border-radius: 8px; border-color: var(--accent); color: var(--accent);
+  background: rgba(242, 193, 78, 0.08); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tp-ability-btn:not(:disabled) { background: var(--accent); color: #201700; }
+.tp-flip { padding: 5px 8px; font-size: 0.72rem; border-radius: 8px; flex: none; }
+.tp-ability-when { display: block; margin-top: 3px; font-size: 0.64rem; color: var(--muted); }
+.tp-ability-when.tp-ready { color: #7fe09a; font-weight: 700; }
+.tp-player.flipped .tp-player-front { display: none; }
+.tp-player-back { display: none; }
+.tp-player.flipped .tp-player-back { display: block; animation: flip-in 0.25s ease; }
+.tp-player-back b { font-size: 0.76rem; color: var(--accent); }
+.tp-player-back p { font-size: 0.7rem; color: var(--text); margin: 5px 0 7px; line-height: 1.35; }
+@keyframes flip-in { from { transform: rotateY(80deg); opacity: 0.3; } }
+
 /* fouled/frozen players */
 .piece.is-frozen { opacity: 0.55; filter: grayscale(0.8); }
 .meeple-frozen svg { transform: rotate(80deg) translateY(6px); filter: grayscale(0.75) brightness(0.8); }
@@ -280,10 +309,14 @@ body.view3d #board-wrap::after {
 #meeple-layer { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
 body:not(.view3d) #meeple-layer { display: none; }
 .meeple {
-  position: absolute; pointer-events: auto; cursor: pointer;
+  position: absolute; pointer-events: none; cursor: pointer;
   transition: left 0.45s ease, top 0.45s ease;
 }
 .meeple svg { width: 100%; height: 100%; overflow: visible; }
+.meeple-hit {
+  position: absolute; left: 12%; right: 12%; bottom: 0; height: 52%;
+  pointer-events: auto;
+}
 .meeple-active svg { animation: meeple-bob 1.3s ease-in-out infinite; }
 .meeple-active .meeple-body { filter: drop-shadow(0 0 5px rgba(255,255,255,0.9)); }
 .meeple-ai-active .meeple-body { filter: drop-shadow(0 0 4px rgba(255,255,255,0.45)); }

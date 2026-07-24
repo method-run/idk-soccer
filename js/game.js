@@ -262,36 +262,54 @@ export function stepsLeft(state) {
   return Math.max(0, moveRange(state, p) - state.stepsUsed);
 }
 
-// 8-directional BFS. Occupied tiles are traversable but not terminal.
-// Returns { dist: Map key->steps (endable tiles only), parent: Map } within
-// the mover's remaining budget.
+// 8-directional path search. Occupied tiles are traversable but not
+// terminal. Among equal-step routes the search prefers, in order: entering
+// fewer opponent squares (heavily so while carrying — those are dribble
+// challenges), fewer teammate squares, and the fewest direction changes
+// (straight lines beat zigzags). Returns { dist: Map key->steps (endable
+// tiles only), parent: Map } within the mover's remaining budget.
 function bfsInfo(state, playerId, max) {
   const player = getPlayer(state, playerId);
-  const occupied = new Set(
-    state.players.filter((p) => p.id !== playerId).map((p) => `${p.x},${p.y}`)
-  );
+  const isCarrier = state.ball.carrier === playerId;
+  const occ = new Map();
+  for (const p of state.players) {
+    if (p.id !== playerId) occ.set(`${p.x},${p.y}`, p.team === player.team ? 'mate' : 'opp');
+  }
+  const STEP = 100000;
+  const OPP = isCarrier ? 2000 : 400;
+  const MATE = 100;
+  const TURNC = 1;
   const startKey = `${player.x},${player.y}`;
-  const seen = new Map([[startKey, 0]]);
+  // best per tile: lowest composite cost (steps strictly dominate)
+  const best = new Map([[startKey, { steps: 0, cost: 0, dir: -1 }]]);
   const parent = new Map();
-  let frontier = [[player.x, player.y]];
-  for (let step = 1; step <= max; step++) {
-    const next = [];
-    for (const [cx, cy] of frontier) {
-      for (const [dx, dy] of DIRS8) {
-        const nx = cx + dx;
-        const ny = cy + dy;
-        const key = `${nx},${ny}`;
-        if (!inBounds(nx, ny) || seen.has(key)) continue;
-        seen.set(key, step);
-        parent.set(key, `${cx},${cy}`);
-        next.push([nx, ny]);
+  const queue = [{ x: player.x, y: player.y, key: startKey, steps: 0, cost: 0, dir: -1 }];
+  while (queue.length) {
+    let qi = 0;
+    for (let i = 1; i < queue.length; i++) if (queue[i].cost < queue[qi].cost) qi = i;
+    const cur = queue.splice(qi, 1)[0];
+    if (cur.cost > (best.get(cur.key)?.cost ?? Infinity)) continue;
+    if (cur.steps >= max) continue;
+    for (let d = 0; d < DIRS8.length; d++) {
+      const nx = cur.x + DIRS8[d][0];
+      const ny = cur.y + DIRS8[d][1];
+      if (!inBounds(nx, ny)) continue;
+      const key = `${nx},${ny}`;
+      const kind = occ.get(key);
+      const hazard = kind === 'opp' ? OPP : kind === 'mate' ? MATE : 0;
+      const turn = cur.dir !== -1 && cur.dir !== d ? TURNC : 0;
+      const cost = cur.cost + STEP + hazard + turn;
+      const prev = best.get(key);
+      if (!prev || cost < prev.cost) {
+        best.set(key, { steps: cur.steps + 1, cost, dir: d });
+        parent.set(key, cur.key);
+        queue.push({ x: nx, y: ny, key, steps: cur.steps + 1, cost, dir: d });
       }
     }
-    frontier = next;
   }
   const dist = new Map();
-  for (const [key, d] of seen) {
-    if (!occupied.has(key)) dist.set(key, d);
+  for (const [key, b] of best) {
+    if (!occ.has(key)) dist.set(key, b.steps);
   }
   return { dist, parent, startKey };
 }

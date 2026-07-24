@@ -111,10 +111,15 @@ export function renderMeeples(state, ui, tileCenter) {
       el = document.createElement('div');
       el.className = `meeple team-${p.team}`;
       el.innerHTML = meepleSVG(p);
-      el.addEventListener('click', (ev) => {
+      // Only the lower body is clickable, so the sprite's head doesn't
+      // swallow clicks meant for the square behind it.
+      const hit = document.createElement('div');
+      hit.className = 'meeple-hit';
+      hit.addEventListener('click', (ev) => {
         ev.stopPropagation();
         handlers?.onPlayerClick?.(p.id);
       });
+      el.appendChild(hit);
       layer.appendChild(el);
       sprites.set(p.id, el);
     }
@@ -122,9 +127,9 @@ export function renderMeeples(state, ui, tileCenter) {
     const pos = project(c.u, c.v);
     const size = pos.scale * 48;
     el.style.width = `${size}px`;
-    el.style.height = `${size * 1.3}px`;
+    el.style.height = `${size * 1.18}px`;
     el.style.left = `${pos.x - size / 2}px`;
-    el.style.top = `${pos.y - size * 1.3 + size * 0.16}px`;
+    el.style.top = `${pos.y - size * 1.18 + size * 0.14}px`;
     el.style.zIndex = 10 + Math.round(c.v / 10);
     el.classList.toggle('meeple-active', activeId === p.id && !ui.aiTurn);
     el.classList.toggle('meeple-ai-active', activeId === p.id && !!ui.aiTurn);
