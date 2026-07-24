@@ -433,18 +433,25 @@ function renderAll() {
   }
   if (ui.phase === 'aim-pass') {
     const c = carrier(state);
+    const tiles = [];
     for (let x = 0; x < W; x++) {
       for (let y = 0; y < H; y++) {
         const d = cheb(c.x, c.y, x, y);
         if (d >= 1 && d <= PASS_MAX) {
-          const pc = pct(c.pas, passTN(d));
-          highlights.push({
-            x, y, kind: 'pass', label: `${pc}%`,
-            // highlight fades as the odds do
-            alpha: 0.05 + 0.3 * (pc / 100),
-          });
+          tiles.push({ x, y, pc: pct(c.pas, passTN(d)) });
         }
       }
+    }
+    // Normalize across the odds actually on offer so the contrast is
+    // obvious even when the spread is narrow (e.g. 58-92%).
+    const lo = Math.min(...tiles.map((t) => t.pc));
+    const hi = Math.max(...tiles.map((t) => t.pc));
+    for (const t of tiles) {
+      const k = hi > lo ? (t.pc - lo) / (hi - lo) : 0.5;
+      highlights.push({
+        x: t.x, y: t.y, kind: 'pass', label: `${t.pc}%`,
+        alpha: 0.06 + 0.6 * k,
+      });
     }
   }
 

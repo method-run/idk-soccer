@@ -235,15 +235,27 @@ export function render(ctx, state, ui) {
   }
   ctx.gPathPreview.innerHTML = ''; // renderPathPreview redraws on hover
 
-  // goal aim cells: fill fades with the shooter's accuracy odds
+  // goal aim cells: fill fades with the shooter's accuracy odds,
+  // normalized across the six cells so center-vs-corner is unmistakable
   for (const side of ['left', 'right']) {
     const aiming = ui.aimGoal === side;
-    for (const c of ctx.goalCellEls[side]) {
+    const pcs = ctx.goalCellEls[side].map((c) =>
+      aiming && ui.aimPct ? ui.aimPct({ col: c.col, high: c.high }) : null
+    );
+    const known = pcs.filter((p) => p != null);
+    const lo = Math.min(...known);
+    const hi = Math.max(...known);
+    ctx.goalCellEls[side].forEach((c, i) => {
       c.el.classList.toggle('aimable', aiming);
       c.label.textContent = aiming && ui.aimTNs ? ui.aimTNs({ col: c.col, high: c.high }) : '';
-      const pc = aiming && ui.aimPct ? ui.aimPct({ col: c.col, high: c.high }) : null;
-      c.rect.style.fill = pc != null ? `rgba(242, 193, 78, ${0.08 + 0.42 * (pc / 100)})` : '';
-    }
+      const pc = pcs[i];
+      if (pc != null) {
+        const k = hi > lo ? (pc - lo) / (hi - lo) : 0.5;
+        c.rect.style.fill = `rgba(242, 193, 78, ${0.12 + 0.5 * k})`;
+      } else {
+        c.rect.style.fill = '';
+      }
+    });
   }
 
   // drift-preview arrows
