@@ -219,6 +219,7 @@ export function render(ctx, state, ui) {
       x: tx(h.y) + 3, y: ty(h.x) + 3, width: T - 6, height: T - 6, rx: 8,
       class: `hl hl-${h.kind}`,
     }, ctx.gHighlights);
+    if (h.alpha != null) r.style.fill = `rgba(242, 193, 78, ${h.alpha})`;
     if (h.label != null) {
       el('text', { x: tx(h.y) + T - 8, y: ty(h.x) + 14, class: 'hl-tn' }, ctx.gHighlights)
         .textContent = h.label;
@@ -234,12 +235,14 @@ export function render(ctx, state, ui) {
   }
   ctx.gPathPreview.innerHTML = ''; // renderPathPreview redraws on hover
 
-  // goal aim cells
+  // goal aim cells: fill fades with the shooter's accuracy odds
   for (const side of ['left', 'right']) {
     const aiming = ui.aimGoal === side;
     for (const c of ctx.goalCellEls[side]) {
       c.el.classList.toggle('aimable', aiming);
       c.label.textContent = aiming && ui.aimTNs ? ui.aimTNs({ col: c.col, high: c.high }) : '';
+      const pc = aiming && ui.aimPct ? ui.aimPct({ col: c.col, high: c.high }) : null;
+      c.rect.style.fill = pc != null ? `rgba(242, 193, 78, ${0.08 + 0.42 * (pc / 100)})` : '';
     }
   }
 

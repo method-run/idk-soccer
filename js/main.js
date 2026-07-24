@@ -337,7 +337,10 @@ function startMatch(mode, rosters = null) {
     onRingAction: handleRingAction,
     onTileHover: handleTileHover,
   });
-  initMeeples($('board-wrap'), $('board'), { onPlayerClick: handlePlayerClick });
+  initMeeples($('board-wrap'), $('board'), {
+    onPlayerClick: handlePlayerClick,
+    onRingAction: handleRingAction,
+  });
   if (ui.view3d) warm3d(); // pre-load the 3D dice so the first roll is seamless
   $('log').innerHTML = '';
   $('dice-tray').innerHTML = '';
@@ -434,11 +437,21 @@ function renderAll() {
       for (let y = 0; y < H; y++) {
         const d = cheb(c.x, c.y, x, y);
         if (d >= 1 && d <= PASS_MAX) {
-          highlights.push({ x, y, kind: 'pass', label: `${pct(c.pas, passTN(d))}%` });
+          const pc = pct(c.pas, passTN(d));
+          highlights.push({
+            x, y, kind: 'pass', label: `${pc}%`,
+            // highlight fades as the odds do
+            alpha: 0.05 + 0.3 * (pc / 100),
+          });
         }
       }
     }
   }
+
+  const ringData =
+    human && ui.phase === 'idle' && ui.playerView === 1 ? buildRing(selected) : null;
+  const statsData =
+    ui.inspectId || (human && ui.playerView === 2 && ui.phase === 'idle' ? selected : null);
 
   render(board, state, {
     activeId,
@@ -457,23 +470,32 @@ function renderAll() {
       const tn = shotTN(shotDistance(state, c), cell);
       return `${pct(c.sho, tn)}%`;
     },
+    aimPct: (cell) => {
+      if (ui.phase === 'pick-dive') return null; // equal-looking cells
+      const c = carrier(state);
+      return c ? pct(c.sho, shotTN(shotDistance(state, c), cell)) : null;
+    },
     arrows: human
       ? driftPreview(state).map((s) => ({ ...s, team: state.activeTeam }))
       : null,
-    ring: human && ui.phase === 'idle' && ui.playerView === 1 ? buildRing(selected) : null,
-    statsBox:
-      ui.inspectId || (human && ui.playerView === 2 && ui.phase === 'idle' ? selected : null),
+    ring: ringData,
+    statsBox: statsData,
   });
   renderClock();
   renderTeamPanels();
   renderMoverChip(activeId);
   renderButtons();
   renderLog();
-  // 3D dressing: tilt + meeple sprites over the same interactive SVG
+  // 3D dressing: tilt + meeple sprites over the same interactive SVG,
+  // with ring/stats re-rendered as HTML above the sprites
   document.body.classList.toggle('view3d', ui.view3d);
   setMeeplesVisible(ui.view3d);
   if (ui.view3d) {
-    renderMeeples(state, { activeId, aiTurn: ui.aiTurn }, tileCenterUV);
+    renderMeeples(
+      state,
+      { activeId, aiTurn: ui.aiTurn, ring: ringData, statsBox: statsData },
+      tileCenterUV
+    );
   }
 }
 

@@ -4,6 +4,8 @@
 // SVG layers underneath; sprites forward their clicks.
 
 import { TEAM_META } from './data.js';
+import { statLine } from './icons.js';
+import { LOOKS, fallbackLook, portraitSVG } from './portraits.js';
 
 // warm hex mixing for wood-toy shading
 function mix(hex, target, k) {
@@ -16,10 +18,11 @@ const lighten = (h, k) => mix(h, '#fff3d8', k);
 const darken = (h, k) => mix(h, '#1a0e06', k);
 
 export const TILT_DEG = 38;
-export const TILT_SCALE = 1.14;
+export const TILT_YSCALE = 1.14; // vertical only — width must not overflow
 const COS = Math.cos((TILT_DEG * Math.PI) / 180);
 
 let layer = null;
+let hudEl = null;
 let svgEl = null;
 const sprites = new Map();
 let ballEl = null;
@@ -32,10 +35,17 @@ export function initMeeples(container, svg, h) {
   layer.innerHTML = '';
   sprites.clear();
   ballEl = null;
+  if (!hudEl || hudEl.parentElement !== container) {
+    hudEl = document.createElement('div');
+    hudEl.id = 'hud-layer';
+    container.appendChild(hudEl);
+  }
+  hudEl.innerHTML = '';
 }
 
 // SVG user coords -> px within #board-wrap, matching the CSS
-// rotateX(TILT_DEG) scale(TILT_SCALE) applied about the svg center.
+// rotateX(TILT_DEG) scale(1, TILT_YSCALE) applied about the svg center.
+// X is untouched so the goals never clip outside the container.
 // NB: SVG elements have no offset* metrics — the meeple layer div shares the
 // board-wrap box, so it is the measuring stick for the svg's layout size.
 function project(u, v) {
@@ -45,12 +55,11 @@ function project(u, v) {
   const s = Math.min(w0 / vb.width, h0 / vb.height);
   const X = (w0 - vb.width * s) / 2 + u * s;
   const Y = (h0 - vb.height * s) / 2 + v * s;
-  const cxp = w0 / 2;
   const cyp = h0 / 2;
   return {
-    x: cxp + (X - cxp) * TILT_SCALE,
-    y: cyp + (Y - cyp) * COS * TILT_SCALE,
-    scale: s * TILT_SCALE,
+    x: X,
+    y: cyp + (Y - cyp) * COS * TILT_YSCALE,
+    scale: s,
   };
 }
 
@@ -87,7 +96,7 @@ function meepleSVG(p) {
       stroke-width="1.6" fill="none" stroke-linecap="round" opacity="0.8"/>
     <path d="M9.5 27.5 q10.5 4.2 21 0 M12.5 32 q7.5 2.8 15 0" stroke="${darken(c, 0.35)}"
       stroke-width="0.7" fill="none" opacity="0.35"/>
-    <text x="20" y="30.5" text-anchor="middle" font-size="10.5" font-weight="800"
+    <text x="20" y="23.5" text-anchor="middle" font-size="10" font-weight="800"
       fill="${darken(c, 0.55)}" opacity="0.85">${p.num}</text>
   </svg>`;
 }
@@ -111,7 +120,7 @@ export function renderMeeples(state, ui, tileCenter) {
     }
     const c = tileCenter(p.x, p.y);
     const pos = project(c.u, c.v);
-    const size = pos.scale * 44;
+    const size = pos.scale * 48;
     el.style.width = `${size}px`;
     el.style.height = `${size * 1.3}px`;
     el.style.left = `${pos.x - size / 2}px`;
@@ -133,14 +142,66 @@ export function renderMeeples(state, ui, tileCenter) {
   }
   const bc = tileCenter(state.ball.x, state.ball.y);
   const bp = project(bc.u + (state.ball.carrier ? 14 : 0), bc.v + (state.ball.carrier ? 10 : 0));
-  const bs = bp.scale * 20;
+  const bs = bp.scale * 22;
   ballEl.style.width = `${bs}px`;
   ballEl.style.height = `${bs}px`;
   ballEl.style.left = `${bp.x - bs / 2}px`;
   ballEl.style.top = `${bp.y - bs}px`;
   ballEl.style.zIndex = 10 + Math.round(bc.v / 10) + 1;
+
+  renderHud(state, ui, tileCenter);
+}
+
+// Action pills + stats card as HTML above the meeples (the SVG versions are
+// hidden in 3D view — sprites would otherwise cover them).
+function renderHud(state, ui, tileCenter) {
+  hudEl.innerHTML = '';
+  const w0 = layer.clientWidth;
+  if (ui.ring && ui.ring.items.length) {
+    const p = state.players.find((q) => q.id === ui.ring.playerId);
+    const c = tileCenter(p.x, p.y);
+    const pos = project(c.u, c.v);
+    const wrap = document.createElement('div');
+    wrap.className = 'hud-ring';
+    for (const item of ui.ring.items) {
+      const b = document.createElement('button');
+      b.className = 'hud-pill';
+      b.innerHTML = `<b>${item.label}</b>${item.sub ? `<span>${item.sub}</span>` : ''}`;
+      b.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        handlers?.onRingAction?.(item.key);
+      });
+      wrap.appendChild(b);
+    }
+    const approxW = ui.ring.items.length * 96;
+    wrap.style.left = `${Math.max(approxW / 2 + 6, Math.min(w0 - approxW / 2 - 6, pos.x))}px`;
+    wrap.style.top = `${Math.max(34, pos.y - pos.scale * 48 * 1.35)}px`;
+    hudEl.appendChild(wrap);
+  }
+  if (ui.statsBox) {
+    const p = state.players.find((q) => q.id === ui.statsBox);
+    if (p) {
+      const c = tileCenter(p.x, p.y);
+      const pos = project(c.u, c.v);
+      const look = LOOKS[p.lookId] || fallbackLook(p.name);
+      const card = document.createElement('div');
+      card.className = `hud-stats team-${p.team}`;
+      card.innerHTML = `
+        ${portraitSVG(look, { size: 44, team: p.team })}
+        <div class="hud-stats-body">
+          <b>#${p.num} ${p.name} <i>(${p.role})</i></b>
+          <span>${statLine(p)}</span>
+        </div>`;
+      const flip = pos.x > w0 - 240;
+      card.style.left = `${flip ? pos.x - 26 : pos.x + 26}px`;
+      card.style.top = `${pos.y - pos.scale * 40}px`;
+      if (flip) card.style.transform = 'translateX(-100%)';
+      hudEl.appendChild(card);
+    }
+  }
 }
 
 export function setMeeplesVisible(on) {
   if (layer) layer.style.display = on ? '' : 'none';
+  if (hudEl) hudEl.style.display = on ? '' : 'none';
 }
