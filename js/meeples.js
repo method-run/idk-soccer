@@ -6,6 +6,7 @@
 import { TEAM_META } from './data.js';
 import { statLine } from './icons.js';
 import { LOOKS, fallbackLook, portraitSVG } from './portraits.js';
+import { abilityFor } from './abilities.js';
 
 // warm hex mixing for wood-toy shading
 function mix(hex, target, k) {
@@ -111,10 +112,15 @@ export function renderMeeples(state, ui, tileCenter) {
       el = document.createElement('div');
       el.className = `meeple team-${p.team}`;
       el.innerHTML = meepleSVG(p);
-      el.addEventListener('click', (ev) => {
+      // Only the lower body is clickable, so the sprite's head doesn't
+      // swallow clicks meant for the square behind it.
+      const hit = document.createElement('div');
+      hit.className = 'meeple-hit';
+      hit.addEventListener('click', (ev) => {
         ev.stopPropagation();
         handlers?.onPlayerClick?.(p.id);
       });
+      el.appendChild(hit);
       layer.appendChild(el);
       sprites.set(p.id, el);
     }
@@ -122,12 +128,13 @@ export function renderMeeples(state, ui, tileCenter) {
     const pos = project(c.u, c.v);
     const size = pos.scale * 48;
     el.style.width = `${size}px`;
-    el.style.height = `${size * 1.3}px`;
+    el.style.height = `${size * 1.18}px`;
     el.style.left = `${pos.x - size / 2}px`;
-    el.style.top = `${pos.y - size * 1.3 + size * 0.16}px`;
+    el.style.top = `${pos.y - size * 1.18 + size * 0.14}px`;
     el.style.zIndex = 10 + Math.round(c.v / 10);
     el.classList.toggle('meeple-active', activeId === p.id && !ui.aiTurn);
     el.classList.toggle('meeple-ai-active', activeId === p.id && !!ui.aiTurn);
+    el.classList.toggle('meeple-frozen', !!ui.frozen && ui.frozen.includes(p.id));
   }
   // ball
   if (!ballEl) {
@@ -154,7 +161,12 @@ export function renderMeeples(state, ui, tileCenter) {
 
 // Action pills + stats card as HTML above the meeples (the SVG versions are
 // hidden in 3D view — sprites would otherwise cover them).
+let hudFlipped = false;
+let lastStatsId = null;
+let lastHud = null;
+
 function renderHud(state, ui, tileCenter) {
+  lastHud = { state, ui, tileCenter };
   hudEl.innerHTML = '';
   const w0 = layer.clientWidth;
   const h0 = layer.clientHeight;
@@ -180,20 +192,37 @@ function renderHud(state, ui, tileCenter) {
     ringWrap.style.top = `${Math.max(34, pos.y - pos.scale * 48 * 1.35)}px`;
     hudEl.appendChild(ringWrap);
   }
+  if (ui.statsBox !== lastStatsId) {
+    hudFlipped = false;
+    lastStatsId = ui.statsBox;
+  }
   if (ui.statsBox) {
     const p = state.players.find((q) => q.id === ui.statsBox);
     if (p) {
       const c = tileCenter(p.x, p.y);
       const pos = project(c.u, c.v);
       const look = LOOKS[p.lookId] || fallbackLook(p.name);
+      const def = abilityFor(p);
       const card = document.createElement('div');
-      card.className = `hud-stats team-${p.team}`;
-      card.innerHTML = `
+      card.className = `hud-stats team-${p.team}${hudFlipped ? ' hud-flipped' : ''}`;
+      card.innerHTML = hudFlipped
+        ? `<div class="hud-stats-body hud-stats-ability">
+            <b>✨ ${def ? `${def.name} (${def.cost}⚡)` : 'No ability'}</b>
+            <p>${def ? def.blurb : ''}</p>
+            <em>tap to flip back</em>
+          </div>`
+        : `
         ${portraitSVG(look, { size: 44, team: p.team })}
         <div class="hud-stats-body">
           <b>#${p.num} ${p.name} <i>(${p.role})</i></b>
           <span>${statLine(p)}</span>
+          ${def ? `<u class="hud-ability-line">✨ ${def.name} ${def.cost}⚡ <em>· tap card</em></u>` : ''}
         </div>`;
+      card.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        hudFlipped = !hudFlipped;
+        if (lastHud) renderHud(lastHud.state, lastHud.ui, lastHud.tileCenter);
+      });
       // Measure first, then pick the first placement that stays on the
       // board and doesn't collide with the action pills.
       card.style.visibility = 'hidden';

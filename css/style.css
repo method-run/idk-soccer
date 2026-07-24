@@ -91,6 +91,58 @@ button.primary { background: var(--accent); color: #201700; border-color: var(--
   text-align: left; padding: 8px 10px; line-height: 1.2;
 }
 .pcard .portrait { align-self: center; border-radius: 8px; }
+.pc-ability {
+  display: block; font-size: 0.7rem; color: var(--accent); line-height: 1.25;
+  border-top: 1px dashed rgba(242, 193, 78, 0.3); padding-top: 3px; margin-top: 2px;
+}
+.pc-ability b { font-weight: 800; }
+.pc-ability i { display: block; font-style: normal; color: var(--muted); font-size: 0.66rem; }
+.assign-row .pc-ability i { display: none; }
+
+.tp-charges {
+  display: flex; align-items: center; gap: 6px; font-weight: 800;
+  color: var(--accent); font-size: 0.9rem;
+}
+.tp-charges span { display: flex; gap: 3px; }
+.tp-charges i {
+  width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+}
+.tp-charges .pip-on { background: var(--accent); box-shadow: 0 0 4px var(--accent); }
+.tp-charges .pip-off { background: rgba(255, 255, 255, 0.15); }
+
+/* active-player card in the team panel */
+.tp-player {
+  width: 100%; background: rgba(0, 0, 0, 0.28); border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16); padding: 8px; text-align: left;
+  animation: tray-in 0.2s ease;
+}
+.tp-player-head { display: flex; gap: 8px; align-items: center; }
+.tp-player-head .portrait { flex: none; border-radius: 6px; }
+.tp-player-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tp-player-info b { font-size: 0.78rem; line-height: 1.15; }
+.tp-player-info span { display: flex; flex-wrap: wrap; gap: 2px 6px; font-size: 0.68rem; color: var(--muted); }
+.tp-ability-row { display: flex; gap: 4px; margin-top: 7px; }
+.tp-ability-btn {
+  flex: 1; padding: 5px 4px; font-size: 0.72rem; font-weight: 700;
+  border-radius: 8px; border-color: var(--accent); color: var(--accent);
+  background: rgba(242, 193, 78, 0.08); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tp-ability-btn:not(:disabled) { background: var(--accent); color: #201700; }
+.tp-flip { padding: 5px 8px; font-size: 0.72rem; border-radius: 8px; flex: none; }
+.tp-ability-when { display: block; margin-top: 3px; font-size: 0.64rem; color: var(--muted); }
+.tp-ability-when.tp-ready { color: #7fe09a; font-weight: 700; }
+.tp-player.flipped .tp-player-front { display: none; }
+.tp-player-back { display: none; }
+.tp-player.flipped .tp-player-back { display: block; animation: flip-in 0.25s ease; }
+.tp-player-back b { font-size: 0.76rem; color: var(--accent); }
+.tp-player-back p { font-size: 0.7rem; color: var(--text); margin: 5px 0 7px; line-height: 1.35; }
+@keyframes flip-in { from { transform: rotateY(80deg); opacity: 0.3; } }
+
+/* fouled/frozen players */
+.piece.is-frozen { opacity: 0.55; filter: grayscale(0.8); }
+.meeple-frozen svg { transform: rotate(80deg) translateY(6px); filter: grayscale(0.75) brightness(0.8); }
+.meeple-frozen { pointer-events: auto; }
 .assign-row .portrait { flex: none; width: 36px; height: 36px; border-radius: 6px; }
 .pcard:not(:disabled):hover { border-color: var(--accent); }
 .pc-name { font-size: 0.88rem; }
@@ -218,13 +270,24 @@ body.view3d .layer-stats { display: none; }
 }
 .hud-pill b { font-size: 0.85rem; }
 .hud-pill span { font-size: 0.66rem; color: var(--accent); }
-.hud-pill:hover { background: #2d260c; }
+.hud-pill { transition: transform 0.12s ease, background 0.12s ease; cursor: pointer; }
+.hud-pill:hover { background: #2d260c; transform: translateY(-2px) scale(1.05); }
 .hud-stats {
   position: absolute; display: flex; gap: 8px; align-items: center;
-  padding: 8px 12px 8px 8px; border-radius: 10px; pointer-events: none;
+  padding: 8px 12px 8px 8px; border-radius: 10px; pointer-events: auto;
   background: rgba(8, 16, 10, 0.95); border: 1px solid rgba(255,255,255,0.35);
-  max-width: 240px;
+  max-width: 250px; cursor: pointer; transition: border-color 0.15s ease;
 }
+.hud-stats:hover { border-color: var(--accent); }
+.hud-ability-line {
+  text-decoration: none; color: var(--accent); font-size: 0.72rem; font-weight: 700;
+}
+.hud-ability-line em { color: var(--muted); font-style: normal; font-weight: 400; }
+.hud-stats.hud-flipped { animation: flip-in 0.25s ease; }
+.hud-stats-ability { max-width: 220px; }
+.hud-stats-ability b { color: var(--accent); font-size: 0.8rem; }
+.hud-stats-ability p { color: var(--text); font-size: 0.74rem; margin: 4px 0; line-height: 1.35; }
+.hud-stats-ability em { color: var(--muted); font-style: normal; font-size: 0.66rem; }
 .hud-stats.team-home { border-top: 4px solid var(--home); }
 .hud-stats.team-away { border-top: 4px solid var(--away); }
 .hud-stats .portrait { border-radius: 8px; flex: none; }
@@ -257,10 +320,17 @@ body.view3d #board-wrap::after {
 #meeple-layer { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
 body:not(.view3d) #meeple-layer { display: none; }
 .meeple {
-  position: absolute; pointer-events: auto; cursor: pointer;
+  position: absolute; pointer-events: none; cursor: pointer;
   transition: left 0.45s ease, top 0.45s ease;
 }
 .meeple svg { width: 100%; height: 100%; overflow: visible; }
+.meeple-hit {
+  position: absolute; left: 12%; right: 12%; bottom: 0; height: 52%;
+  pointer-events: auto; cursor: pointer;
+}
+.meeple:has(.meeple-hit:hover) svg {
+  filter: brightness(1.18) drop-shadow(0 0 5px rgba(255, 255, 255, 0.55));
+}
 .meeple-active svg { animation: meeple-bob 1.3s ease-in-out infinite; }
 .meeple-active .meeple-body { filter: drop-shadow(0 0 5px rgba(255,255,255,0.9)); }
 .meeple-ai-active .meeple-body { filter: drop-shadow(0 0 4px rgba(255,255,255,0.45)); }
@@ -440,18 +510,13 @@ body:not(.view3d) #meeple-layer { display: none; }
   display: flex; flex-direction: column; gap: 8px;
 }
 
-#mover-chip {
-  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
-  min-height: 20px; font-size: 0.85rem;
-}
-.chip-badge { font-weight: 800; padding: 1px 7px; border-radius: 999px; color: #fff; }
-.chip-badge.team-home { background: var(--home); }
-.chip-badge.team-away { background: var(--away); }
-.chip-name { font-weight: 700; }
+#panel-top { display: flex; align-items: center; gap: 10px; min-height: 34px; }
+#hint-bar { flex: 1; min-width: 0; }
 .chip-hint { color: var(--accent); font-size: 0.78rem; }
 
-#actions { display: flex; gap: 8px; }
-#actions button { flex: 1; padding: 10px 4px; font-weight: 600; }
+#actions { display: flex; gap: 6px; flex: none; }
+#actions button { padding: 6px 12px; font-weight: 700; font-size: 0.85rem; }
+#btn-end { padding: 6px 16px; }
 
 #log {
   height: 64px; overflow-y: auto; font-size: 0.75rem; line-height: 1.45;
@@ -550,3 +615,7 @@ body:not(.view3d) #meeple-layer { display: none; }
   .team-panel .mini-pitch { max-width: 56px; }
   #board-wrap { grid-column: 1 / -1; }
 }
+
+.chip-ability { color: var(--accent); font-size: 0.78rem; font-weight: 700; }
+
+.stats-ability { fill: var(--accent); font-size: 11px; font-weight: 700; }
