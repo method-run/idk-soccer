@@ -11,19 +11,23 @@ themed to the real player's game. Costs scale with impact.
 play simple (a stack of beads per team), and makes "who do I spend this
 on?" a real decision.
 
-Earning (each line max once per your turn; bank cap **6**):
+Earning — REVISED (v2): outcome-blind. Charges reward *attempting* the
+game's mechanics and falling behind, never winning rolls ("win-more").
+Each line max once per your turn; bank cap **6**:
 
 | Event | Charges | Why it's strategic |
 |---|---|---|
-| Completed pass to a teammate | +1 | rewards possession play, the user's core instinct |
-| Winning any contested CTL roll (tackle, 50/50, dribble defense) | +1 | rewards committing defenders |
-| Keeper save | +1 | rewards disciplined keeper positioning |
+| Attempting a pass (any outcome) | +1 | rewards interaction & ball movement |
+| Attempting a tackle (any outcome) | +1 | rewards defensive engagement |
+| Taking on a defender (dribble-through attempt) | +1 | rewards risky attacking play |
+| Attempting a shot | +1 | rewards finishing moves |
+| Ending your turn without possession | +1 | underdog drip while defending |
 | Conceding a goal | +2 | rubber-band; sets up comeback drama |
 
-Expected income ≈ 0.7–1.0/turn for an active team. So a 2-cost ability
-fires every ~3 turns, a 4-cost roughly once per half. **One activation per
-turn** (either team), announced before dice are rolled for the affected
-action.
+**Stacking allowed (v2)**: any number of activations per turn; each
+individual player's ability at most once per turn. Cheap abilities can be
+doubled up. Activations are announced before dice are rolled for the
+affected action.
 
 Paper conversion: beads/coins by each team's goal; ability text lives on
 the player's draft card.
@@ -69,11 +73,11 @@ the player's draft card.
 |---|---|---|---|
 | Kevin De Broin | **Laser Pass** | 3 | While carrying: one pass auto-succeeds (no roll, no scatter). |
 | Luka Modritch | **Dictate Tempo** | 2 | Your end-of-turn drift moves teammates 2 squares instead of 1. |
-| Jude Bellingsworth | **Arrives Late** | 2 | After your team's pass resolves, he immediately moves up to SPD. |
+| Jude Bellingsworth | **Arrives Late** | 2 | After your team's completed pass this turn, he immediately takes a bonus move of up to SPD. |
 | N'Golo Kanteh | **Everywhere** | 3 | Automatic steal from an adjacent carrier. |
 | Rodri Hernandes | **Metronome** | 1 | Until your next turn, your completed passes earn 2 charges instead of 1. |
 | Frenkie de Young | **Press Resistance** | 3 | This turn, his dribble-through challenges auto-succeed. |
-| Pedri Gonsales | **Half-Turn Escape** | 2 | React: an attempted steal against him automatically fails. |
+| Pedri Gonsales | **Half-Turn Escape** | 2 | Pre-declared on your turn: steals against him auto-fail until your next turn. |
 | Federico Valverdi | **Thunderbolt** | 3 | One shot this turn takes no distance penalty. |
 
 ### Forwards
@@ -87,22 +91,25 @@ the player's draft card.
 | Neimar Junyor | **Drama** (draw foul) | 3 | Adjacent to an opponent: freeze them next turn; your team snaps 2 drift steps toward formation; he takes a free pass action (no movement). |
 | Mo Sallah | **Cut Inside** | 2 | If he moved ≥2 this turn: +2 SHO on this turn's shot. |
 | Vinny Junyor | **Baila** | 2 | Auto-win one dribble challenge; the beaten defender is frozen next turn. |
-| Harry Cane | **Drop Deep** | 2 | Passing doesn't consume his action this turn (he may still shoot). |
+| Harry Cane | **One-Two** | 2 | After his completed pass, the receiver immediately moves up to 2 squares (give-and-go). *(Replaced Drop Deep — pass-then-shoot was mechanically impossible.)* |
 
-Coverage of the original rough ideas: auto-steal → Markinhos/Kanteh (3);
-bypass miss chance → Haalund (3); bypass goalie → Bonaldo (4, still needs
-accuracy); free dribble-through turn → de Young/Nessi (3/4); foul →
-Carvahal (2); drawing a foul → Neimar (3).
+Coverage of the original rough ideas: auto-steal → Markinhos/Kanteh (3,
+consumes the action); bypass miss chance → Haalund (3); bypass goalie →
+Bonaldo (4, still needs accuracy); free dribble-through turn → de
+Young/Nessi (3/4); foul → Carvahal (2); drawing a foul → Neimar (3, minus
+the free pass — his pass is his normal action).
 
 ## 4. Rules details & edge cases
 
 - **Frozen** players: can't be chosen as mover, don't drift, and count at
   −1 to support. Marker: lay the meeple down / status icon in app.
-- Reaction abilities (Bucker, Kourtoise, Pedri) are declared after the
-  trigger is announced but before dice hit the table (dice remain the
-  undo checkpoint).
-- One activation per team-turn total, including reactions on the
-  opponent's turn — using a reaction spends your next turn's activation.
+- Reaction abilities (keeper dive boosts) are declared after the trigger
+  is announced but before dice hit the table (dice remain the undo
+  checkpoint). With stacking allowed, reactions simply cost charges — no
+  activation-slot bookkeeping.
+- Bonus moves (Arrives Late, One-Two) move a player who is not the turn's
+  mover; while a bonus move is in progress no ball action may be taken,
+  and it ends when its steps run out or the turn ends.
 - Quick-match template teams play without abilities (or with a single
   generic "+2 to one roll, cost 2" if testing wants parity).
 
