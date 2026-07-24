@@ -328,8 +328,8 @@ body:not(.view3d) #meeple-layer { display: none; }
 .hl { cursor: pointer; }
 .hl-move { fill: rgba(255, 255, 255, 0.22); stroke: rgba(255,255,255,0.5); stroke-width: 1; }
 .hl-move:hover { fill: rgba(255, 255, 255, 0.38); }
-.hl-pass { fill: rgba(242, 193, 78, 0.15); stroke: rgba(242,193,78,0.4); stroke-width: 1; }
-.hl-pass:hover { fill: rgba(242, 193, 78, 0.35); }
+.hl-pass { fill: rgba(242, 193, 78, 0.15); stroke: rgba(255, 255, 255, 0.22); stroke-width: 1; }
+.hl-pass:hover { stroke: rgba(255, 255, 255, 0.6); stroke-width: 2; }
 .hl-tn { fill: rgba(255, 233, 176, 0.9); font-size: 10px; text-anchor: end; pointer-events: none; }
 
 .target-ghost { opacity: 0.5; pointer-events: none; }

@@ -219,7 +219,8 @@ export function render(ctx, state, ui) {
       x: tx(h.y) + 3, y: ty(h.x) + 3, width: T - 6, height: T - 6, rx: 8,
       class: `hl hl-${h.kind}`,
     }, ctx.gHighlights);
-    if (h.alpha != null) r.style.fill = `rgba(242, 193, 78, ${h.alpha})`;
+    if (h.fill) r.style.fill = h.fill;
+    else if (h.alpha != null) r.style.fill = `rgba(242, 193, 78, ${h.alpha})`;
     if (h.label != null) {
       el('text', { x: tx(h.y) + T - 8, y: ty(h.x) + 14, class: 'hl-tn' }, ctx.gHighlights)
         .textContent = h.label;

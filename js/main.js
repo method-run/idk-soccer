@@ -442,15 +442,18 @@ function renderAll() {
         }
       }
     }
-    // Normalize across the odds actually on offer so the contrast is
-    // obvious even when the spread is narrow (e.g. 58-92%).
+    // Normalize across the odds actually on offer, then paint grass health:
+    // best targets are lush green, worst are dark, muddy, desaturated.
     const lo = Math.min(...tiles.map((t) => t.pc));
     const hi = Math.max(...tiles.map((t) => t.pc));
+    const MUD = [82, 68, 46];
+    const LUSH = [96, 178, 70];
     for (const t of tiles) {
       const k = hi > lo ? (t.pc - lo) / (hi - lo) : 0.5;
+      const ch = MUD.map((m, i) => Math.round(m + (LUSH[i] - m) * k));
       highlights.push({
         x: t.x, y: t.y, kind: 'pass', label: `${t.pc}%`,
-        alpha: 0.06 + 0.6 * k,
+        fill: `rgba(${ch[0]}, ${ch[1]}, ${ch[2]}, ${0.55 + 0.3 * k})`,
       });
     }
   }
