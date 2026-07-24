@@ -47,6 +47,7 @@ export function newMatch({ mode = 'pve', maxTurns = MAX_TURNS, rosters = null } 
         team,
         num: i + 1,
         name: p.name,
+        lookId: p.id || null, // portrait key for drafted pool players
         role: i === 0 ? 'GK' : p.role,
         spd: p.spd,
         sho: p.sho,

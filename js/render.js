@@ -8,6 +8,7 @@
 
 import { W, H, GOAL_COLS, TEAM_META } from './data.js';
 import { STAT_ICONS } from './icons.js';
+import { LOOKS, fallbackLook, headMarkup } from './portraits.js';
 import { formationTargets, activePlayerId, PASS_MAX, cheb, shotTN, passTN } from './game.js';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -218,6 +219,8 @@ export function render(ctx, state, ui) {
       x: tx(h.y) + 3, y: ty(h.x) + 3, width: T - 6, height: T - 6, rx: 8,
       class: `hl hl-${h.kind}`,
     }, ctx.gHighlights);
+    if (h.fill) r.style.fill = h.fill;
+    else if (h.alpha != null) r.style.fill = `rgba(242, 193, 78, ${h.alpha})`;
     if (h.label != null) {
       el('text', { x: tx(h.y) + T - 8, y: ty(h.x) + 14, class: 'hl-tn' }, ctx.gHighlights)
         .textContent = h.label;
@@ -233,13 +236,27 @@ export function render(ctx, state, ui) {
   }
   ctx.gPathPreview.innerHTML = ''; // renderPathPreview redraws on hover
 
-  // goal aim cells
+  // goal aim cells: fill fades with the shooter's accuracy odds,
+  // normalized across the six cells so center-vs-corner is unmistakable
   for (const side of ['left', 'right']) {
     const aiming = ui.aimGoal === side;
-    for (const c of ctx.goalCellEls[side]) {
+    const pcs = ctx.goalCellEls[side].map((c) =>
+      aiming && ui.aimPct ? ui.aimPct({ col: c.col, high: c.high }) : null
+    );
+    const known = pcs.filter((p) => p != null);
+    const lo = Math.min(...known);
+    const hi = Math.max(...known);
+    ctx.goalCellEls[side].forEach((c, i) => {
       c.el.classList.toggle('aimable', aiming);
       c.label.textContent = aiming && ui.aimTNs ? ui.aimTNs({ col: c.col, high: c.high }) : '';
-    }
+      const pc = pcs[i];
+      if (pc != null) {
+        const k = hi > lo ? (pc - lo) / (hi - lo) : 0.5;
+        c.rect.style.fill = `rgba(242, 193, 78, ${0.12 + 0.5 * k})`;
+      } else {
+        c.rect.style.fill = '';
+      }
+    });
   }
 
   // drift-preview arrows
@@ -340,8 +357,8 @@ function renderStatsCard(ctx, state, ui) {
   if (!ui.statsBox) return;
   const p = state.players.find((q) => q.id === ui.statsBox);
   if (!p) return;
-  const bw = 148;
-  const bh = 64;
+  const bw = 186;
+  const bh = 66;
   let bx = cx(p.x, p.y) + 26;
   let by = cy(p.x) - bh / 2;
   if (bx + bw > VW - 4) bx = cx(p.x, p.y) - 26 - bw;
@@ -349,13 +366,19 @@ function renderStatsCard(ctx, state, ui) {
   const g = el('g', { class: `stats-box team-${p.team}` }, ctx.gStats);
   el('rect', { x: bx, y: by, width: bw, height: bh, rx: 8, class: 'stats-bg' }, g);
   el('rect', { x: bx, y: by, width: bw, height: 20, rx: 8, class: 'stats-head' }, g);
+  // portrait
+  const look = LOOKS[p.lookId] || fallbackLook(p.name);
+  const pg = el('g', {
+    transform: `translate(${bx + 2},${by + 22}) scale(0.65)`,
+  }, g);
+  pg.innerHTML = headMarkup(look);
   const name = el('text', { x: bx + 8, y: by + 14, class: 'stats-name' }, g);
   name.textContent = `#${p.num} ${p.name} (${p.role})`;
   const cells = [
-    ['spd', p.spd, bx + 8, by + 24],
-    ['sho', `+${p.sho}`, bx + 78, by + 24],
-    ['pas', `+${p.pas}`, bx + 8, by + 43],
-    ['ctl', `+${p.ctl}`, bx + 78, by + 43],
+    ['spd', p.spd, bx + 46, by + 24],
+    ['sho', `+${p.sho}`, bx + 116, by + 24],
+    ['pas', `+${p.pas}`, bx + 46, by + 43],
+    ['ctl', `+${p.ctl}`, bx + 116, by + 43],
   ];
   for (const [key, val, ix, iy] of cells) {
     const ic = STAT_ICONS[key];
@@ -374,4 +397,9 @@ function renderStatsCard(ctx, state, ui) {
 // Which goal (screen side) a team attacks.
 export function goalSideFor(team) {
   return team === 'home' ? 'right' : 'left';
+}
+
+// SVG user-space center of a tile — used by the meeple layer's projection.
+export function tileCenterUV(x, y) {
+  return { u: cx(x, y), v: cy(x) };
 }

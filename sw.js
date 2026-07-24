@@ -1,5 +1,5 @@
 // Cache-first service worker for full offline play.
-const CACHE = 'grid-soccer-v12';
+const CACHE = 'grid-soccer-v18-sizzle';
 const ASSETS = [
   './',
   './index.html',
@@ -10,6 +10,11 @@ const ASSETS = [
   './js/data.js',
   './js/dice.js',
   './js/render.js',
+  './js/portraits.js',
+  './js/meeples.js',
+  './js/dice3d.js',
+  './js/goalscene.js',
+  './vendor/three.module.js',
   './manifest.webmanifest',
   './icons/icon.svg',
   './icons/icon-192.png',

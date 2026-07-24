@@ -72,6 +72,7 @@
         <div id="progress-mid"></div>
       </div>
       <span id="turn-label"></span>
+      <button id="btn-view3d" title="Toggle 3D view">3D</button>
       <button id="btn-pause" title="Pause" hidden>⏸</button>
       <button id="btn-speed" title="Playback speed" hidden>1×</button>
       <button id="btn-quit" title="Back to menu">✕</button>
@@ -81,6 +82,7 @@
       <aside id="panel-home" class="team-panel team-panel-home"></aside>
       <div id="board-wrap">
         <svg id="board"></svg>
+        <div id="meeple-layer"></div>
         <div id="dice-tray"></div>
         <div id="banner"></div>
         <div id="dice-overlay"></div>
@@ -99,6 +101,9 @@
       <div id="log"></div>
     </footer>
   </div>
+
+  <!-- 3D shot cutscene -->
+  <div id="cutscene"></div>
 
   <!-- GENERIC OVERLAY (dive picks, formation picker, full time) -->
   <div id="overlay" class="modal">

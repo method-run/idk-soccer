@@ -11,8 +11,14 @@ import {
   movePath, occupantAt, keeperDistance, KEEPER_STRANDED,
 } from './game.js';
 import { aiChooseFormation, aiChooseMove, aiChooseAction, aiPickDive, p2d6 } from './ai.js';
-import { initBoard, render, renderPathPreview, goalSideFor } from './render.js';
+import { initBoard, render, renderPathPreview, goalSideFor, tileCenterUV } from './render.js';
+import { initMeeples, renderMeeples, setMeeplesVisible } from './meeples.js';
 import { statLine } from './icons.js';
+import { LOOKS, fallbackLook, portraitSVG } from './portraits.js';
+
+function lookFor(p) {
+  return LOOKS[p.lookId || p.id] || fallbackLook(p.name);
+}
 
 const $ = (id) => document.getElementById(id);
 const rawSleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -29,6 +35,7 @@ const ui = {
   speed: 1,
   session: 0, // bumped on new match / quit; stale async loops check it
   paused: false,
+  view3d: localStorage.getItem('gs-view3d') !== '0',
   playerView: 1, // 0 minimal | 1 action ring | 2 stats
   inspectId: null, // stats peek at a non-selected player
   skipRoll: false,
@@ -70,6 +77,7 @@ let draft = null;
 
 function playerCardHTML(p, extra = '') {
   return `
+    ${portraitSVG(lookFor(p), { size: 48, team: p.team || null })}
     <span class="pc-role pc-${p.role}">${p.role}</span>
     <b class="pc-name">${p.name}</b>
     <span class="pc-stats">${statLine(p, { abbrev: true })}</span>
@@ -329,6 +337,11 @@ function startMatch(mode, rosters = null) {
     onRingAction: handleRingAction,
     onTileHover: handleTileHover,
   });
+  initMeeples($('board-wrap'), $('board'), {
+    onPlayerClick: handlePlayerClick,
+    onRingAction: handleRingAction,
+  });
+  if (ui.view3d) warm3d(); // pre-load the 3D dice so the first roll is seamless
   $('log').innerHTML = '';
   $('dice-tray').innerHTML = '';
   show('screen-match');
@@ -420,15 +433,35 @@ function renderAll() {
   }
   if (ui.phase === 'aim-pass') {
     const c = carrier(state);
+    const tiles = [];
     for (let x = 0; x < W; x++) {
       for (let y = 0; y < H; y++) {
         const d = cheb(c.x, c.y, x, y);
         if (d >= 1 && d <= PASS_MAX) {
-          highlights.push({ x, y, kind: 'pass', label: `${pct(c.pas, passTN(d))}%` });
+          tiles.push({ x, y, pc: pct(c.pas, passTN(d)) });
         }
       }
     }
+    // Normalize across the odds actually on offer, then paint grass health:
+    // best targets are lush green, worst are dark, muddy, desaturated.
+    const lo = Math.min(...tiles.map((t) => t.pc));
+    const hi = Math.max(...tiles.map((t) => t.pc));
+    const MUD = [82, 68, 46];
+    const LUSH = [96, 178, 70];
+    for (const t of tiles) {
+      const k = hi > lo ? (t.pc - lo) / (hi - lo) : 0.5;
+      const ch = MUD.map((m, i) => Math.round(m + (LUSH[i] - m) * k));
+      highlights.push({
+        x: t.x, y: t.y, kind: 'pass', label: `${t.pc}%`,
+        fill: `rgba(${ch[0]}, ${ch[1]}, ${ch[2]}, ${0.55 + 0.3 * k})`,
+      });
+    }
   }
+
+  const ringData =
+    human && ui.phase === 'idle' && ui.playerView === 1 ? buildRing(selected) : null;
+  const statsData =
+    ui.inspectId || (human && ui.playerView === 2 && ui.phase === 'idle' ? selected : null);
 
   render(board, state, {
     activeId,
@@ -447,18 +480,33 @@ function renderAll() {
       const tn = shotTN(shotDistance(state, c), cell);
       return `${pct(c.sho, tn)}%`;
     },
+    aimPct: (cell) => {
+      if (ui.phase === 'pick-dive') return null; // equal-looking cells
+      const c = carrier(state);
+      return c ? pct(c.sho, shotTN(shotDistance(state, c), cell)) : null;
+    },
     arrows: human
       ? driftPreview(state).map((s) => ({ ...s, team: state.activeTeam }))
       : null,
-    ring: human && ui.phase === 'idle' && ui.playerView === 1 ? buildRing(selected) : null,
-    statsBox:
-      ui.inspectId || (human && ui.playerView === 2 && ui.phase === 'idle' ? selected : null),
+    ring: ringData,
+    statsBox: statsData,
   });
   renderClock();
   renderTeamPanels();
   renderMoverChip(activeId);
   renderButtons();
   renderLog();
+  // 3D dressing: tilt + meeple sprites over the same interactive SVG,
+  // with ring/stats re-rendered as HTML above the sprites
+  document.body.classList.toggle('view3d', ui.view3d);
+  setMeeplesVisible(ui.view3d);
+  if (ui.view3d) {
+    renderMeeples(
+      state,
+      { activeId, aiTurn: ui.aiTurn, ring: ringData, statsBox: statsData },
+      tileCenterUV
+    );
+  }
 }
 
 function pct(mod, tn) {
@@ -698,10 +746,19 @@ async function diceAction(exec) {
   return result;
 }
 
+// three.js dice: warmed up at match start; webglOK memoizes capability so a
+// machine without WebGL falls back to 2D pips exactly once, silently.
+let dice3dReady = null;
+let webglOK = null;
+function warm3d() {
+  if (!dice3dReady) dice3dReady = import('./dice3d.js').catch(() => null);
+}
+
 async function playRoll(e) {
   const r = e.roll;
   const o = $('dice-overlay');
   ui.skipRoll = false;
+  const use3d = ui.view3d && webglOK !== false;
   const oppLine = r.opp
     ? `<div class="do-opp">${dieFace(r.opp.a)}${dieFace(r.opp.b)}
        <span>+${r.opp.mod} = ${r.opp.total}</span></div>`
@@ -712,7 +769,9 @@ async function playRoll(e) {
       <div class="do-target">Need <b>${r.tn}</b></div>
       <div class="do-math">${r.tnLabel || ''}</div>
       ${oppLine}
-      <div class="do-dice">${dieFace(0, 'rolling')}${dieFace(0, 'rolling')}</div>
+      <div class="do-dice${use3d ? ' do-dice3d' : ''}">${
+        use3d ? '' : dieFace(0, 'rolling') + dieFace(0, 'rolling')
+      }</div>
       <div class="do-mod">${r.modLabel || `+${r.mod}`}</div>
       <div class="do-result"></div>
     </div>`;
@@ -726,18 +785,43 @@ async function playRoll(e) {
     for (let t = 0; t < ms && !ui.skipRoll; t += step) await sleep(step);
   };
 
-  // pre-roll beat: read the target
-  await beat(450);
-  // tumble
-  for (let i = 0; i < 7 && !ui.skipRoll; i++) {
-    setDie(d1, 1 + Math.floor(Math.random() * 6));
-    setDie(d2, 1 + Math.floor(Math.random() * 6));
-    await sleep(50 + i * 8);
+  // One seamless roll: in 3D the dice are already tumbling while the target
+  // number is read, then settle — no 2D pre-phase.
+  let did3d = false;
+  if (use3d) {
+    warm3d();
+    const mod = await dice3dReady;
+    if (mod) {
+      try {
+        const area = o.querySelector('.do-dice');
+        const anim = mod.play(area, r.a, r.b, (450 + 950) / ui.speed, () => ui.skipRoll);
+        await beat(450); // read the target while the dice tumble
+        await anim;
+        webglOK = true;
+        did3d = true;
+      } catch {
+        webglOK = false;
+      }
+    } else {
+      webglOK = false;
+    }
+    if (!did3d) {
+      // late fallback: show settled 2D dice in place
+      o.querySelector('.do-dice').innerHTML = dieFace(r.a) + dieFace(r.b);
+      await beat(500);
+    }
+  } else {
+    await beat(450);
+    for (let i = 0; i < 7 && !ui.skipRoll; i++) {
+      setDie(d1, 1 + Math.floor(Math.random() * 6));
+      setDie(d2, 1 + Math.floor(Math.random() * 6));
+      await sleep(50 + i * 8);
+    }
+    setDie(d1, r.a);
+    setDie(d2, r.b);
+    d1.classList.remove('rolling');
+    d2.classList.remove('rolling');
   }
-  setDie(d1, r.a);
-  setDie(d2, r.b);
-  d1.classList.remove('rolling');
-  d2.classList.remove('rolling');
   const mod = r.mod >= 0 ? `+${r.mod}` : `${r.mod}`;
   const v = r.verdict || {
     text: r.success ? '✓ SUCCESS' : '✗ FAIL',
@@ -899,8 +983,22 @@ function requestHumanDive(defenderTeam) {
 
 async function resolveShot(aim, dive) {
   const mySession = ui.session;
+  const shooterTeam = state.activeTeam;
   const res = await diceAction(() => doShoot(state, dice, aim, dive));
   if (ui.session !== mySession) return;
+  // 3D cutscene: ball flight + keeper dive matching the actual outcome
+  if (ui.view3d && res.ok && res.outcome) {
+    try {
+      const gs = await import('./goalscene.js');
+      await gs.playGoalScene(
+        { aim, dive, outcome: res.outcome, shooterTeam },
+        ui.speed
+      );
+    } catch {
+      /* WebGL unavailable */
+    }
+    if (ui.session !== mySession) return;
+  }
   if (res.outcome === 'goal') await banner('⚽ GOAL!!!', 'goal', 1800);
   else if (res.outcome === 'save') await banner('🧤 SAVED!', 'save');
   else if (res.outcome === 'rebound') await banner('💥 Off the frame!', 'save');
@@ -1022,6 +1120,20 @@ $('btn-speed').addEventListener('click', () => {
 $('btn-pause').addEventListener('click', () => {
   ui.paused = !ui.paused;
   $('btn-pause').textContent = ui.paused ? '▶' : '⏸';
+});
+$('btn-view3d').addEventListener('click', () => {
+  ui.view3d = !ui.view3d;
+  localStorage.setItem('gs-view3d', ui.view3d ? '1' : '0');
+  $('btn-view3d').textContent = ui.view3d ? '3D' : '2D';
+  if (state) renderAll();
+});
+$('btn-view3d').textContent = ui.view3d ? '3D' : '2D';
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => {
+    if (state && $('screen-match').classList.contains('visible')) renderAll();
+  }, 120);
 });
 $('btn-help').addEventListener('click', () => $('help').classList.add('visible'));
 $('help-close').addEventListener('click', () => $('help').classList.remove('visible'));
