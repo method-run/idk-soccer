@@ -79,7 +79,7 @@ async function banner(text, cls = '', ms = 1400) {
 let draft = null;
 
 function playerCardHTML(p, extra = '') {
-  const abilityDef = abilityFor({ lookId: p.lookId || p.id });
+  const abilityDef = abilityFor({ lookId: p.lookId || p.id, role: p.role });
   return `
     ${portraitSVG(lookFor(p), { size: 48, team: p.team || null })}
     <span class="pc-role pc-${p.role}">${p.role}</span>
@@ -432,7 +432,7 @@ function renderAll() {
   const selPlayer = selected ? getPlayer(state, selected) : null;
 
   const highlights = [];
-  if (human && ui.phase === 'idle' && stepsLeft(state) > 0 && ui.playerView !== 0) {
+  if (human && ui.phase === 'idle' && stepsLeft(state) > 0) {
     for (const key of reachable(state, selected).keys()) {
       const [x, y] = key.split(',').map(Number);
       if (x === selPlayer.x && y === selPlayer.y) continue;
@@ -757,21 +757,17 @@ function openFormationPicker(team) {
   $('formation-cancel').addEventListener('click', hideOverlay);
 }
 
+// The bottom bar carries only the contextual hint now — player identity and
+// abilities live on the team-panel cards.
 function renderMoverChip(activeId) {
-  const chip = $('mover-chip');
+  const bar = $('hint-bar');
   if (!activeId) {
-    chip.innerHTML = '';
+    bar.innerHTML = '';
     return;
   }
   const p = getPlayer(state, activeId);
   const hasBall = state.ball.carrier === p.id;
-  const def = abilityFor(p);
-  chip.innerHTML = `
-    <span class="chip-badge team-${p.team}">#${p.num}</span>
-    <span class="chip-name">${p.name}${hasBall ? ' ⚽' : ''}</span>
-    <span class="chip-stats">${statLine(p)}</span>
-    ${def ? `<span class="chip-ability" title="${def.blurb}">✨ ${def.name} ${def.cost}⚡</span>` : ''}
-    <span class="chip-hint">${hint(p, hasBall)}</span>`;
+  bar.innerHTML = `<span class="chip-hint">${hint(p, hasBall)}</span>`;
 }
 
 function hint(p, hasBall) {
@@ -1327,6 +1323,37 @@ function showFullTime() {
     show('screen-menu');
   });
 }
+
+// Keyboard shortcuts: undo/redo/cancel/end-turn during a match.
+document.addEventListener('keydown', (e) => {
+  if (!state || !$('screen-match').classList.contains('visible')) return;
+  if ($('overlay').classList.contains('visible') || $('help').classList.contains('visible')) {
+    if (e.key === 'Escape') $('help').classList.remove('visible');
+    return;
+  }
+  const mod = e.metaKey || e.ctrlKey;
+  if (mod && e.key.toLowerCase() === 'z') {
+    e.preventDefault();
+    if (e.shiftKey) doRedo();
+    else doUndo();
+  } else if (e.key === 'Escape') {
+    if (ui.phase === 'aim-pass' || ui.phase === 'aim-shot' || ui.phase === 'aim-ability') {
+      ui.phase = 'idle';
+      ui.abilityTargets = null;
+      ui.abilityUser = null;
+      renderAll();
+    } else if (clearInspect()) {
+      renderAll();
+    }
+  } else if (e.key === ' ' || e.key.toLowerCase() === 'e') {
+    e.preventDefault();
+    if (isHumanTurn() && !state.over && ui.phase === 'idle') {
+      clearInspect();
+      endTurn(state, dice);
+      beginTurn();
+    }
+  }
+});
 
 $('btn-pve').addEventListener('click', () => startFlow('pve'));
 $('btn-pvp').addEventListener('click', () => startFlow('pvp'));

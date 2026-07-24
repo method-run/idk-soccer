@@ -85,6 +85,21 @@ export const ABILITIES = {
     blurb: 'After his completed pass, the receiver immediately moves 2.' },
 };
 
+// Non-unique fallback abilities for undrafted (template) teams, one per role,
+// so quick matches still exercise the charge economy.
+export const ROLE_ABILITIES = {
+  GK: { name: 'Smother', cost: 2, kind: 'diveCover',
+    blurb: 'When diving: count your dive 1 cell closer to the shot.' },
+  DF: { name: 'Hard Tackle', cost: 2, kind: 'ctlSelf', n: 2,
+    blurb: '+2 CTL on his contests until your next turn.' },
+  MF: { name: 'Switch Play', cost: 2, kind: 'passFlat',
+    blurb: 'One pass at target 6, any distance.' },
+  FW: { name: 'Poacher', cost: 3, kind: 'shotAuto', maxDist: 3,
+    blurb: 'Within 3 of goal: his shot is automatically on target.' },
+};
+
 export function abilityFor(player) {
-  return player && player.lookId ? ABILITIES[player.lookId] || null : null;
+  if (!player) return null;
+  if (player.lookId && ABILITIES[player.lookId]) return ABILITIES[player.lookId];
+  return ROLE_ABILITIES[player.role] || null;
 }

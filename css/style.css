@@ -270,13 +270,24 @@ body.view3d .layer-stats { display: none; }
 }
 .hud-pill b { font-size: 0.85rem; }
 .hud-pill span { font-size: 0.66rem; color: var(--accent); }
-.hud-pill:hover { background: #2d260c; }
+.hud-pill { transition: transform 0.12s ease, background 0.12s ease; cursor: pointer; }
+.hud-pill:hover { background: #2d260c; transform: translateY(-2px) scale(1.05); }
 .hud-stats {
   position: absolute; display: flex; gap: 8px; align-items: center;
-  padding: 8px 12px 8px 8px; border-radius: 10px; pointer-events: none;
+  padding: 8px 12px 8px 8px; border-radius: 10px; pointer-events: auto;
   background: rgba(8, 16, 10, 0.95); border: 1px solid rgba(255,255,255,0.35);
-  max-width: 240px;
+  max-width: 250px; cursor: pointer; transition: border-color 0.15s ease;
 }
+.hud-stats:hover { border-color: var(--accent); }
+.hud-ability-line {
+  text-decoration: none; color: var(--accent); font-size: 0.72rem; font-weight: 700;
+}
+.hud-ability-line em { color: var(--muted); font-style: normal; font-weight: 400; }
+.hud-stats.hud-flipped { animation: flip-in 0.25s ease; }
+.hud-stats-ability { max-width: 220px; }
+.hud-stats-ability b { color: var(--accent); font-size: 0.8rem; }
+.hud-stats-ability p { color: var(--text); font-size: 0.74rem; margin: 4px 0; line-height: 1.35; }
+.hud-stats-ability em { color: var(--muted); font-style: normal; font-size: 0.66rem; }
 .hud-stats.team-home { border-top: 4px solid var(--home); }
 .hud-stats.team-away { border-top: 4px solid var(--away); }
 .hud-stats .portrait { border-radius: 8px; flex: none; }
@@ -315,7 +326,10 @@ body:not(.view3d) #meeple-layer { display: none; }
 .meeple svg { width: 100%; height: 100%; overflow: visible; }
 .meeple-hit {
   position: absolute; left: 12%; right: 12%; bottom: 0; height: 52%;
-  pointer-events: auto;
+  pointer-events: auto; cursor: pointer;
+}
+.meeple:has(.meeple-hit:hover) svg {
+  filter: brightness(1.18) drop-shadow(0 0 5px rgba(255, 255, 255, 0.55));
 }
 .meeple-active svg { animation: meeple-bob 1.3s ease-in-out infinite; }
 .meeple-active .meeple-body { filter: drop-shadow(0 0 5px rgba(255,255,255,0.9)); }
@@ -496,18 +510,13 @@ body:not(.view3d) #meeple-layer { display: none; }
   display: flex; flex-direction: column; gap: 8px;
 }
 
-#mover-chip {
-  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
-  min-height: 20px; font-size: 0.85rem;
-}
-.chip-badge { font-weight: 800; padding: 1px 7px; border-radius: 999px; color: #fff; }
-.chip-badge.team-home { background: var(--home); }
-.chip-badge.team-away { background: var(--away); }
-.chip-name { font-weight: 700; }
+#panel-top { display: flex; align-items: center; gap: 10px; min-height: 34px; }
+#hint-bar { flex: 1; min-width: 0; }
 .chip-hint { color: var(--accent); font-size: 0.78rem; }
 
-#actions { display: flex; gap: 8px; }
-#actions button { flex: 1; padding: 10px 4px; font-weight: 600; }
+#actions { display: flex; gap: 6px; flex: none; }
+#actions button { padding: 6px 12px; font-weight: 700; font-size: 0.85rem; }
+#btn-end { padding: 6px 16px; }
 
 #log {
   height: 64px; overflow-y: auto; font-size: 0.75rem; line-height: 1.45;
@@ -608,3 +617,5 @@ body:not(.view3d) #meeple-layer { display: none; }
 }
 
 .chip-ability { color: var(--accent); font-size: 0.78rem; font-weight: 700; }
+
+.stats-ability { fill: var(--accent); font-size: 11px; font-weight: 700; }

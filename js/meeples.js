@@ -6,6 +6,7 @@
 import { TEAM_META } from './data.js';
 import { statLine } from './icons.js';
 import { LOOKS, fallbackLook, portraitSVG } from './portraits.js';
+import { abilityFor } from './abilities.js';
 
 // warm hex mixing for wood-toy shading
 function mix(hex, target, k) {
@@ -160,7 +161,12 @@ export function renderMeeples(state, ui, tileCenter) {
 
 // Action pills + stats card as HTML above the meeples (the SVG versions are
 // hidden in 3D view — sprites would otherwise cover them).
+let hudFlipped = false;
+let lastStatsId = null;
+let lastHud = null;
+
 function renderHud(state, ui, tileCenter) {
+  lastHud = { state, ui, tileCenter };
   hudEl.innerHTML = '';
   const w0 = layer.clientWidth;
   const h0 = layer.clientHeight;
@@ -186,20 +192,37 @@ function renderHud(state, ui, tileCenter) {
     ringWrap.style.top = `${Math.max(34, pos.y - pos.scale * 48 * 1.35)}px`;
     hudEl.appendChild(ringWrap);
   }
+  if (ui.statsBox !== lastStatsId) {
+    hudFlipped = false;
+    lastStatsId = ui.statsBox;
+  }
   if (ui.statsBox) {
     const p = state.players.find((q) => q.id === ui.statsBox);
     if (p) {
       const c = tileCenter(p.x, p.y);
       const pos = project(c.u, c.v);
       const look = LOOKS[p.lookId] || fallbackLook(p.name);
+      const def = abilityFor(p);
       const card = document.createElement('div');
-      card.className = `hud-stats team-${p.team}`;
-      card.innerHTML = `
+      card.className = `hud-stats team-${p.team}${hudFlipped ? ' hud-flipped' : ''}`;
+      card.innerHTML = hudFlipped
+        ? `<div class="hud-stats-body hud-stats-ability">
+            <b>✨ ${def ? `${def.name} (${def.cost}⚡)` : 'No ability'}</b>
+            <p>${def ? def.blurb : ''}</p>
+            <em>tap to flip back</em>
+          </div>`
+        : `
         ${portraitSVG(look, { size: 44, team: p.team })}
         <div class="hud-stats-body">
           <b>#${p.num} ${p.name} <i>(${p.role})</i></b>
           <span>${statLine(p)}</span>
+          ${def ? `<u class="hud-ability-line">✨ ${def.name} ${def.cost}⚡ <em>· tap card</em></u>` : ''}
         </div>`;
+      card.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        hudFlipped = !hudFlipped;
+        if (lastHud) renderHud(lastHud.state, lastHud.ui, lastHud.tileCenter);
+      });
       // Measure first, then pick the first placement that stays on the
       // board and doesn't collide with the action pills.
       card.style.visibility = 'hidden';

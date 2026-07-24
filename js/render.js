@@ -9,6 +9,7 @@
 import { W, H, GOAL_COLS, TEAM_META } from './data.js';
 import { STAT_ICONS } from './icons.js';
 import { LOOKS, fallbackLook, headMarkup } from './portraits.js';
+import { abilityFor } from './abilities.js';
 import { formationTargets, activePlayerId, PASS_MAX, cheb, shotTN, passTN } from './game.js';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -358,8 +359,9 @@ function renderStatsCard(ctx, state, ui) {
   if (!ui.statsBox) return;
   const p = state.players.find((q) => q.id === ui.statsBox);
   if (!p) return;
+  const def = abilityFor(p);
   const bw = 186;
-  const bh = 66;
+  const bh = def ? 80 : 66;
   let bx = cx(p.x, p.y) + 26;
   let by = cy(p.x) - bh / 2;
   if (bx + bw > VW - 4) bx = cx(p.x, p.y) - 26 - bw;
@@ -392,6 +394,11 @@ function renderStatsCard(ctx, state, ui) {
     el('title', {}, icon).textContent = `${ic.label} · ${ic.full}`;
     const t = el('text', { x: ix + 18, y: iy + 11, class: 'stats-line' }, g);
     t.textContent = val;
+  }
+  if (def) {
+    const a = el('text', { x: bx + 8, y: by + bh - 8, class: 'stats-ability' }, g);
+    a.textContent = `✨ ${def.name} ${def.cost}⚡`;
+    el('title', {}, a).textContent = def.blurb;
   }
 }
 
