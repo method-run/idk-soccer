@@ -157,12 +157,14 @@ export function renderMeeples(state, ui, tileCenter) {
 function renderHud(state, ui, tileCenter) {
   hudEl.innerHTML = '';
   const w0 = layer.clientWidth;
+  const h0 = layer.clientHeight;
+  let ringWrap = null;
   if (ui.ring && ui.ring.items.length) {
     const p = state.players.find((q) => q.id === ui.ring.playerId);
     const c = tileCenter(p.x, p.y);
     const pos = project(c.u, c.v);
-    const wrap = document.createElement('div');
-    wrap.className = 'hud-ring';
+    ringWrap = document.createElement('div');
+    ringWrap.className = 'hud-ring';
     for (const item of ui.ring.items) {
       const b = document.createElement('button');
       b.className = 'hud-pill';
@@ -171,12 +173,12 @@ function renderHud(state, ui, tileCenter) {
         ev.stopPropagation();
         handlers?.onRingAction?.(item.key);
       });
-      wrap.appendChild(b);
+      ringWrap.appendChild(b);
     }
     const approxW = ui.ring.items.length * 96;
-    wrap.style.left = `${Math.max(approxW / 2 + 6, Math.min(w0 - approxW / 2 - 6, pos.x))}px`;
-    wrap.style.top = `${Math.max(34, pos.y - pos.scale * 48 * 1.35)}px`;
-    hudEl.appendChild(wrap);
+    ringWrap.style.left = `${Math.max(approxW / 2 + 6, Math.min(w0 - approxW / 2 - 6, pos.x))}px`;
+    ringWrap.style.top = `${Math.max(34, pos.y - pos.scale * 48 * 1.35)}px`;
+    hudEl.appendChild(ringWrap);
   }
   if (ui.statsBox) {
     const p = state.players.find((q) => q.id === ui.statsBox);
@@ -192,11 +194,41 @@ function renderHud(state, ui, tileCenter) {
           <b>#${p.num} ${p.name} <i>(${p.role})</i></b>
           <span>${statLine(p)}</span>
         </div>`;
-      const flip = pos.x > w0 - 240;
-      card.style.left = `${flip ? pos.x - 26 : pos.x + 26}px`;
-      card.style.top = `${pos.y - pos.scale * 40}px`;
-      if (flip) card.style.transform = 'translateX(-100%)';
+      // Measure first, then pick the first placement that stays on the
+      // board and doesn't collide with the action pills.
+      card.style.visibility = 'hidden';
       hudEl.appendChild(card);
+      const cw = card.offsetWidth;
+      const chh = card.offsetHeight;
+      const mh = pos.scale * 48 * 1.3; // meeple height
+      let ring = null;
+      if (ringWrap) {
+        const hr = hudEl.getBoundingClientRect();
+        const rr = ringWrap.getBoundingClientRect();
+        ring = {
+          l: rr.left - hr.left - 4,
+          t: rr.top - hr.top - 4,
+          r: rr.right - hr.left + 4,
+          b: rr.bottom - hr.top + 4,
+        };
+      }
+      const fits = ([l, t]) => l >= 4 && t >= 4 && l + cw <= w0 - 4 && t + chh <= h0 - 4;
+      const collides = ([l, t]) =>
+        !!ring && l < ring.r && l + cw > ring.l && t < ring.b && t + chh > ring.t;
+      const candidates = [
+        [pos.x + 24, pos.y - mh * 0.8], // right of the piece
+        [pos.x - 24 - cw, pos.y - mh * 0.8], // left
+        [pos.x - cw / 2, pos.y + 10], // below
+        [pos.x + 24, pos.y + 10], // low-right
+        [pos.x - cw / 2, (ring ? ring.t : pos.y - mh) - chh - 6], // above the pills
+      ];
+      const spot =
+        candidates.find((s) => fits(s) && !collides(s)) ||
+        candidates.find((s) => fits(s)) ||
+        candidates[0];
+      card.style.left = `${Math.max(4, Math.min(w0 - cw - 4, spot[0]))}px`;
+      card.style.top = `${Math.max(4, Math.min(h0 - chh - 4, spot[1]))}px`;
+      card.style.visibility = '';
     }
   }
 }
