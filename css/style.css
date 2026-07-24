@@ -91,6 +91,29 @@ button.primary { background: var(--accent); color: #201700; border-color: var(--
   text-align: left; padding: 8px 10px; line-height: 1.2;
 }
 .pcard .portrait { align-self: center; border-radius: 8px; }
+.pc-ability {
+  display: block; font-size: 0.7rem; color: var(--accent); line-height: 1.25;
+  border-top: 1px dashed rgba(242, 193, 78, 0.3); padding-top: 3px; margin-top: 2px;
+}
+.pc-ability b { font-weight: 800; }
+.pc-ability i { display: block; font-style: normal; color: var(--muted); font-size: 0.66rem; }
+.assign-row .pc-ability i { display: none; }
+
+.tp-charges {
+  display: flex; align-items: center; gap: 6px; font-weight: 800;
+  color: var(--accent); font-size: 0.9rem;
+}
+.tp-charges span { display: flex; gap: 3px; }
+.tp-charges i {
+  width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+}
+.tp-charges .pip-on { background: var(--accent); box-shadow: 0 0 4px var(--accent); }
+.tp-charges .pip-off { background: rgba(255, 255, 255, 0.15); }
+
+/* fouled/frozen players */
+.piece.is-frozen { opacity: 0.55; filter: grayscale(0.8); }
+.meeple-frozen svg { transform: rotate(80deg) translateY(6px); filter: grayscale(0.75) brightness(0.8); }
+.meeple-frozen { pointer-events: auto; }
 .assign-row .portrait { flex: none; width: 36px; height: 36px; border-radius: 6px; }
 .pcard:not(:disabled):hover { border-color: var(--accent); }
 .pc-name { font-size: 0.88rem; }
@@ -550,3 +573,5 @@ body:not(.view3d) #meeple-layer { display: none; }
   .team-panel .mini-pitch { max-width: 56px; }
   #board-wrap { grid-column: 1 / -1; }
 }
+
+.chip-ability { color: var(--accent); font-size: 0.78rem; font-weight: 700; }

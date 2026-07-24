@@ -128,6 +128,7 @@ export function renderMeeples(state, ui, tileCenter) {
     el.style.zIndex = 10 + Math.round(c.v / 10);
     el.classList.toggle('meeple-active', activeId === p.id && !ui.aiTurn);
     el.classList.toggle('meeple-ai-active', activeId === p.id && !!ui.aiTurn);
+    el.classList.toggle('meeple-frozen', !!ui.frozen && ui.frozen.includes(p.id));
   }
   // ball
   if (!ballEl) {

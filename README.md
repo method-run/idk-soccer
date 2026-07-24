@@ -23,7 +23,8 @@ npm test
 
 - **Draft** (optional toggle, on by default for PvE/PvP) — both sides pick
   7 footballers (1 GK + 6) from a shared 28-player pool in snake order,
-  then arrange them into formation slots before kickoff.
+  then arrange them into formation slots before kickoff. Drafted stars
+  carry unique charge-powered abilities (see How to play in-game).
 - **vs Computer** — you are the Reds, a heuristic AI plays the Blues.
 - **2 Players** — hotseat on one device; the defender picks keeper dives
   on the on-field goal (honor system: don't watch the aim too closely).

@@ -9,7 +9,10 @@ import {
   setFormation, selectMover, driftPreview, endTurn, cheb, stepsLeft,
   shotDistance, shotTN, passTN, stealTN, PASS_MAX, getFormation, supportMod,
   movePath, occupantAt, keeperDistance, KEEPER_STRANDED,
+  canActivateAbility, activateAbility, canDiveBoost, activateDiveBoost,
+  isFrozen, CHARGE_CAP,
 } from './game.js';
+import { abilityFor } from './abilities.js';
 import { aiChooseFormation, aiChooseMove, aiChooseAction, aiPickDive, p2d6 } from './ai.js';
 import { initBoard, render, renderPathPreview, goalSideFor, tileCenterUV } from './render.js';
 import { initMeeples, renderMeeples, setMeeplesVisible } from './meeples.js';
@@ -76,11 +79,13 @@ async function banner(text, cls = '', ms = 1400) {
 let draft = null;
 
 function playerCardHTML(p, extra = '') {
+  const abilityDef = abilityFor({ lookId: p.lookId || p.id });
   return `
     ${portraitSVG(lookFor(p), { size: 48, team: p.team || null })}
     <span class="pc-role pc-${p.role}">${p.role}</span>
     <b class="pc-name">${p.name}</b>
     <span class="pc-stats">${statLine(p, { abbrev: true })}</span>
+    ${abilityDef ? `<span class="pc-ability" title="${abilityDef.blurb}">✨ ${abilityDef.name} <b>${abilityDef.cost}⚡</b><i>${abilityDef.blurb}</i></span>` : ''}
     ${extra}`;
 }
 
@@ -458,8 +463,21 @@ function renderAll() {
     }
   }
 
-  const ringData =
+  let ringData =
     human && ui.phase === 'idle' && ui.playerView === 1 ? buildRing(selected) : null;
+  // Keeper reaction pill while the human defender picks a dive
+  if (ui.phase === 'pick-dive') {
+    const defTeam = state.activeTeam === 'home' ? 'away' : 'home';
+    const humanControls = ui.mode === 'pvp' || defTeam === 'home';
+    const db = humanControls ? canDiveBoost(state, defTeam) : { ok: false };
+    if (db.ok) {
+      ringData = {
+        playerId: db.keeperId,
+        items: [{ key: 'diveboost', label: `✨ ${db.def.name}`, sub: `${db.def.cost}⚡ before diving` }],
+      };
+    }
+  }
+  const frozenIds = state.players.filter((p) => isFrozen(state, p.id)).map((p) => p.id);
   const statsData =
     ui.inspectId || (human && ui.playerView === 2 && ui.phase === 'idle' ? selected : null);
 
@@ -490,6 +508,7 @@ function renderAll() {
       : null,
     ring: ringData,
     statsBox: statsData,
+    frozen: frozenIds,
   });
   renderClock();
   renderTeamPanels();
@@ -503,7 +522,7 @@ function renderAll() {
   if (ui.view3d) {
     renderMeeples(
       state,
-      { activeId, aiTurn: ui.aiTurn, ring: ringData, statsBox: statsData },
+      { activeId, aiTurn: ui.aiTurn, ring: ringData, statsBox: statsData, frozen: frozenIds },
       tileCenterUV
     );
   }
@@ -527,6 +546,10 @@ function buildRing(selectedId) {
     const c = carrier(state);
     const sup = supportMod(state, c.x, c.y, p.team, [p.id, c.id]);
     items.push({ key: 'steal', label: 'Steal', sub: `${pct(p.ctl + sup, stealTN(c.ctl))}%` });
+  }
+  const ab = canActivateAbility(state, selectedId);
+  if (ab.ok) {
+    items.push({ key: 'ability', label: `✨ ${ab.def.name}`, sub: `${ab.def.cost}⚡` });
   }
   return items.length ? { playerId: selectedId, items } : null;
 }
@@ -560,10 +583,17 @@ function renderTeamPanels() {
     const canPick =
       active && isHumanTurn() && ui.phase === 'idle' && !state.over;
     panel.classList.toggle('tp-active', active);
+    const ch = state.charges[team];
+    const pips = Array.from({ length: CHARGE_CAP }, (_, i) =>
+      `<i class="${i < ch ? 'pip-on' : 'pip-off'}"></i>`
+    ).join('');
     panel.innerHTML = `
       <div class="tp-name">${meta.name}</div>
       <div class="tp-score">${state.score[team]}</div>
       <div class="tp-controller">${controllerLabel(team)}${active ? ' · playing' : ''}</div>
+      <div class="tp-charges" title="Charge counters — spend on player abilities">
+        ⚡${ch} <span>${pips}</span>
+      </div>
       <button class="tp-card" ${canPick ? '' : 'disabled'} data-team="${team}">
         ${cardPitchSVG(card, team)}
         <b>${card.short}</b>
@@ -630,15 +660,19 @@ function renderMoverChip(activeId) {
   }
   const p = getPlayer(state, activeId);
   const hasBall = state.ball.carrier === p.id;
+  const def = abilityFor(p);
   chip.innerHTML = `
     <span class="chip-badge team-${p.team}">#${p.num}</span>
     <span class="chip-name">${p.name}${hasBall ? ' ⚽' : ''}</span>
     <span class="chip-stats">${statLine(p)}</span>
+    ${def ? `<span class="chip-ability" title="${def.blurb}">✨ ${def.name} ${def.cost}⚡</span>` : ''}
     <span class="chip-hint">${hint(p, hasBall)}</span>`;
 }
 
 function hint(p, hasBall) {
   if (ui.phase === 'pick-dive') return 'SHOT INCOMING — tap a goal cell to dive your keeper!';
+  if (ui.phase === 'aim-ability') return 'Pick your victim — tap an adjacent opponent';
+  if (state.bonusMove) return `BONUS RUN — ${stepsLeft(state)} extra steps, tap a square`;
   if (ui.aiTurn) return 'Computer is thinking…';
   if (ui.phase === 'aim-pass') return 'Tap a square (or a teammate) to pass there — odds shown';
   if (ui.phase === 'aim-shot') {
@@ -661,7 +695,8 @@ function hint(p, hasBall) {
 
 function renderButtons() {
   const human = isHumanTurn() && !state.over && ui.phase !== 'busy';
-  const aiming = ui.phase === 'aim-pass' || ui.phase === 'aim-shot';
+  const aiming =
+    ui.phase === 'aim-pass' || ui.phase === 'aim-shot' || ui.phase === 'aim-ability';
   $('btn-end').disabled = !human || aiming;
   $('btn-cancel').hidden = !aiming;
   $('btn-undo').disabled = !human || aiming || !hist.undo.length;
@@ -907,6 +942,18 @@ function handlePlayerClick(pid) {
     handleTileClick(p.x, p.y);
     return;
   }
+  // Picking a foul/draw-foul victim.
+  if (ui.phase === 'aim-ability' && isHumanTurn() && !state.over) {
+    if (ui.abilityTargets?.includes(pid)) {
+      pushHistory();
+      const res = activateAbility(state, activePlayerId(state), pid);
+      if (!res.ok) hist.undo.pop();
+      ui.phase = 'idle';
+      ui.abilityTargets = null;
+      renderAll();
+    }
+    return;
+  }
   if (!isHumanTurn() || state.over || ui.aiTurn) {
     // spectating / opponent's turn: peek at stats
     ui.inspectId = ui.inspectId === pid ? null : pid;
@@ -933,7 +980,32 @@ function handlePlayerClick(pid) {
 }
 
 async function handleRingAction(key) {
+  if (key === 'diveboost') {
+    // defending keeper's reaction during the dive pick
+    if (ui.phase !== 'pick-dive') return;
+    const defTeam = state.activeTeam === 'home' ? 'away' : 'home';
+    const humanTeam = ui.mode === 'pvp' ? defTeam : 'home';
+    if (defTeam !== humanTeam && ui.mode === 'pve') return;
+    activateDiveBoost(state, defTeam);
+    renderAll();
+    return;
+  }
   if (!isHumanTurn() || state.over || ui.phase !== 'idle') return;
+  if (key === 'ability') {
+    const selected = activePlayerId(state);
+    pushHistory();
+    const res = activateAbility(state, selected);
+    if (res.needsTarget) {
+      hist.undo.pop(); // nothing happened yet
+      ui.phase = 'aim-ability';
+      ui.abilityTargets = res.targets;
+      renderAll();
+      return;
+    }
+    if (!res.ok) hist.undo.pop();
+    renderAll();
+    return;
+  }
   if (key === 'pass') {
     ui.phase = 'aim-pass';
     renderAll();
@@ -1010,6 +1082,7 @@ async function resolveShot(aim, dive) {
 // Buttons
 $('btn-cancel').addEventListener('click', () => {
   ui.phase = 'idle';
+  ui.abilityTargets = null;
   renderAll();
 });
 $('btn-undo').addEventListener('click', doUndo);
@@ -1052,7 +1125,27 @@ async function runAiTurn() {
     if (stale()) return;
   }
   if (!state.over && !state.actionUsed && state.turn === turnBefore) {
+    // Opportunistic ability use: guaranteed steals, boosted shots.
+    const mover = getPlayer(state, activePlayerId(state));
+    const abChk = canActivateAbility(state, mover.id);
+    if (abChk.ok && abChk.def.kind === 'autoSteal') {
+      activateAbility(state, mover.id);
+      renderAll();
+      await sleep(700);
+      if (stale()) return;
+    }
     const act = aiChooseAction(state, dice);
+    if (
+      act.type === 'shoot' &&
+      abChk.ok &&
+      ['shotAuto', 'skipKeeper', 'shotNoDist', 'shoMove'].includes(abChk.def.kind) &&
+      canActivateAbility(state, mover.id).ok
+    ) {
+      activateAbility(state, mover.id);
+      renderAll();
+      await sleep(500);
+      if (stale()) return;
+    }
     if (act.type === 'steal') {
       await diceAction(() => doSteal(state, dice));
       renderAll();
@@ -1149,6 +1242,9 @@ import('./icons.js').then(({ STAT_ICONS, statIcon }) => {
     .map(([k, ic]) => `<span class="stat-chip">${statIcon(k)}<i>${ic.label}</i></span> ${ic.full.split(' — ')[1]}`)
     .join(' · ');
 });
+
+// debug/testing hook: read-only access to the live state
+window.__gs = () => state;
 
 // PWA service worker
 if ('serviceWorker' in navigator) {
