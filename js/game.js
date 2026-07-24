@@ -2,6 +2,7 @@
 // object (see dice.js) so the engine is testable and replayable.
 
 import { W, H, MAX_TURNS, ROSTER, FORMATIONS, GOAL_COLS, CENTER_X, mirrorY } from './data.js';
+import { abilityFor } from './abilities.js';
 
 export const DIRS8 = [
   [-1, -1], [0, -1], [1, -1],
@@ -73,6 +74,14 @@ export function newMatch({ mode = 'pve', maxTurns = MAX_TURNS, rosters = null } 
     actionUsed: false,
     over: false,
     events: [],
+    // --- charge & ability system ---
+    charges: { home: 0, away: 0 },
+    earned: { home: {}, away: {} }, // per-turn earning caps by category
+    frozen: {}, // playerId -> frozen while state.turn <= value
+    effects: [], // active ability effects {kind, team, playerId, until, once?...}
+    usedAbility: {}, // playerId -> turn of last activation (once per turn each)
+    bonusMove: null, // {playerId, left} — ability-granted move for a non-mover
+    lastPass: null, // {team, turn, success, receiverId}
   };
   kickoff(state, 'home');
   return state;
@@ -95,21 +104,71 @@ function logEvent(state, type, text, roll = null) {
 }
 
 // ---------------------------------------------------------------------------
+// Charges: outcome-blind rewards for USING the mechanics, plus comeback
+// drips. Each category earns at most once per your turn; bank caps at 6.
+
+export const CHARGE_CAP = 6;
+
+function addCharge(state, team, key, n = 1) {
+  if (key && state.earned[team][key]) return;
+  if (key) state.earned[team][key] = true;
+  const before = state.charges[team];
+  state.charges[team] = Math.min(CHARGE_CAP, before + n);
+  if (state.charges[team] > before) {
+    logEvent(state, 'charge', `${team} +${state.charges[team] - before}⚡ (${key || 'bonus'}) → ${state.charges[team]}`);
+  }
+}
+
+export function isFrozen(state, playerId) {
+  return (state.frozen[playerId] || -1) >= state.turn;
+}
+
+// Active ability effects
+function fx(state, kind, filter = {}) {
+  return state.effects.find(
+    (e) =>
+      e.kind === kind &&
+      (filter.team == null || e.team === filter.team) &&
+      (filter.playerId == null || e.playerId === filter.playerId)
+  );
+}
+
+function consumeFx(state, effect) {
+  state.effects = state.effects.filter((e) => e !== effect);
+}
+
+// CTL with ability buffs (Organizer aura, Bodyline).
+function effCtl(state, p) {
+  let c = p.ctl;
+  const self = fx(state, 'ctlSelf', { playerId: p.id });
+  if (self) c += self.n;
+  for (const e of state.effects) {
+    if (e.kind === 'ctlAura' && e.team === p.team && e.playerId !== p.id) {
+      const src = getPlayer(state, e.playerId);
+      if (cheb(src.x, src.y, p.x, p.y) <= e.radius) c += e.n;
+    }
+  }
+  return c;
+}
+
+// ---------------------------------------------------------------------------
 // Active mover: an explicit selection if one was made this turn, else the
 // default — your carrier, else your closest to the ball.
 
 export function activePlayerId(state) {
+  // An ability-granted bonus move temporarily controls that player.
+  if (state.bonusMove) return state.bonusMove.playerId;
   const team = state.activeTeam;
   if (state.moverId) {
     const sel = getPlayer(state, state.moverId);
-    if (sel && sel.team === team) return sel.id;
+    if (sel && sel.team === team && !isFrozen(state, sel.id)) return sel.id;
   }
   const c = carrier(state);
-  if (c && c.team === team) return c.id;
+  if (c && c.team === team && !isFrozen(state, c.id)) return c.id;
   let best = null;
   let bestKey = Infinity;
   for (const p of state.players) {
-    if (p.team !== team) continue;
+    if (p.team !== team || isFrozen(state, p.id)) continue;
     const d = cheb(p.x, p.y, state.ball.x, state.ball.y);
     const key = d * 100 + p.num; // tie-break: lowest number
     if (key < bestKey) {
@@ -125,6 +184,7 @@ export function selectMover(state, id) {
   if (state.moved || state.actionUsed) return { ok: false, reason: 'already committed' };
   const p = getPlayer(state, id);
   if (!p || p.team !== state.activeTeam) return { ok: false, reason: 'not your player' };
+  if (isFrozen(state, id)) return { ok: false, reason: 'frozen by a foul' };
   // The carrier is always the one who passes/shoots; selecting someone else
   // just means you move that player instead.
   state.moverId = id;
@@ -172,7 +232,7 @@ export function supportMod(state, x, y, team, excludeIds = []) {
   let mine = 0;
   let theirs = 0;
   for (const p of state.players) {
-    if (excludeIds.includes(p.id)) continue;
+    if (excludeIds.includes(p.id) || isFrozen(state, p.id)) continue;
     if (cheb(p.x, p.y, x, y) <= 1) {
       if (p.team === team) mine++;
       else theirs++;
@@ -189,11 +249,15 @@ export function supportMod(state, x, y, team, excludeIds = []) {
 
 export function moveRange(state, player) {
   const isCarrier = state.ball.carrier === player.id;
-  return isCarrier ? Math.max(1, player.spd - 1) : player.spd;
+  let range = isCarrier ? Math.max(1, player.spd - 1) : player.spd;
+  const boost = fx(state, 'steps', { playerId: player.id });
+  if (boost) range += boost.n;
+  return range;
 }
 
 // Steps the current mover still has this turn.
 export function stepsLeft(state) {
+  if (state.bonusMove) return state.bonusMove.left;
   const p = getPlayer(state, activePlayerId(state));
   return Math.max(0, moveRange(state, p) - state.stepsUsed);
 }
@@ -233,6 +297,9 @@ function bfsInfo(state, playerId, max) {
 }
 
 function budgetFor(state, playerId) {
+  if (state.bonusMove && state.bonusMove.playerId === playerId) {
+    return state.bonusMove.left;
+  }
   const player = getPlayer(state, playerId);
   const used = activePlayerId(state) === playerId ? state.stepsUsed : 0;
   return Math.max(0, moveRange(state, player) - used);
@@ -269,9 +336,14 @@ export function doMove(state, dice, x, y) {
   const key = `${x},${y}`;
   const steps = info.dist.get(key);
   if (!steps) return { ok: false, reason: 'unreachable' }; // undefined or 0 (own tile)
-  state.moved = true;
-  state.moverId = player.id; // lock the selection once committed
-  state.stepsUsed += steps;
+  if (state.bonusMove && state.bonusMove.playerId === player.id) {
+    state.bonusMove.left -= steps;
+    if (state.bonusMove.left <= 0) state.bonusMove = null;
+  } else {
+    state.moved = true;
+    state.moverId = player.id; // lock the selection once committed
+    state.stepsUsed += steps;
+  }
 
   // Reconstruct the path (start exclusive, destination inclusive).
   const path = [];
@@ -290,6 +362,7 @@ export function doMove(state, dice, x, y) {
     if (state.ball.carrier !== player.id) break; // lost it en route
     const occ = occupantAt(state, tx, ty);
     if (occ && occ.team !== player.team) {
+      addCharge(state, player.team, 'dribble'); // taking someone on: earn
       resolveDribbleChallenge(state, dice, player, occ);
     }
   }
@@ -309,12 +382,34 @@ export function doMove(state, dice, x, y) {
 // clean steal — the defender keeps the ball where they stand. Either way
 // the dribbler's run carries on to the chosen square.
 function resolveDribbleChallenge(state, dice, dribbler, defender) {
+  // Ability short-circuits: Slalom/Press Resistance/Baila carry the dribbler
+  // through; The Wall hands the ball straight to the guarded defender.
+  const auto = fx(state, 'dribbleAuto', { playerId: dribbler.id });
+  if (auto) {
+    logEvent(state, 'dribble',
+      `#${dribbler.num} ${dribbler.name} glides past #${defender.num} ${defender.name} — untouchable!`);
+    if (auto.freezeBeaten) {
+      state.frozen[defender.id] = state.turn + 1;
+      logEvent(state, 'freeze', `#${defender.num} ${defender.name} is left dancing — frozen!`);
+    }
+    if (auto.once) consumeFx(state, auto);
+    return;
+  }
+  const wall = fx(state, 'wall', { playerId: defender.id });
+  if (wall) {
+    state.ball.carrier = defender.id;
+    state.ball.x = defender.x;
+    state.ball.y = defender.y;
+    logEvent(state, 'dribble',
+      `#${dribbler.num} ${dribbler.name} runs into THE WALL — #${defender.num} ${defender.name} takes it!`);
+    return;
+  }
   const sup = supportMod(state, defender.x, defender.y, dribbler.team, [
     dribbler.id,
     defender.id,
   ]);
-  const mine = dice.roll2d6(dribbler.ctl + sup);
-  const theirs = dice.roll2d6(defender.ctl);
+  const mine = dice.roll2d6(effCtl(state, dribbler) + sup);
+  const theirs = dice.roll2d6(effCtl(state, defender));
   const through = mine.total >= theirs.total;
   const deficit = theirs.total - mine.total;
   const verdict = through
@@ -364,8 +459,8 @@ function resolvePickup(state, dice, player) {
   }
   const opp = opps.reduce((a, b) => (b.ctl > a.ctl ? b : a));
   const sup = supportMod(state, state.ball.x, state.ball.y, player.team, [player.id, opp.id]);
-  const mine = dice.roll2d6(player.ctl + sup);
-  const theirs = dice.roll2d6(opp.ctl);
+  const mine = dice.roll2d6(effCtl(state, player) + sup);
+  const theirs = dice.roll2d6(effCtl(state, opp));
   const won = mine.total >= theirs.total;
   logEvent(
     state,
@@ -415,7 +510,7 @@ function scatterBall(state, dice, fromX, fromY, tiles) {
 // Steal (ball held by an adjacent opponent)
 
 export function canSteal(state) {
-  if (state.actionUsed) return false;
+  if (state.actionUsed || state.bonusMove) return false;
   const c = carrier(state);
   if (!c || c.team === state.activeTeam) return false;
   const me = getPlayer(state, activePlayerId(state));
@@ -430,8 +525,18 @@ export function doSteal(state, dice) {
   if (!canSteal(state)) return { ok: false, reason: 'no steal available' };
   const me = getPlayer(state, activePlayerId(state));
   const c = carrier(state);
+  addCharge(state, me.team, 'tackle'); // attempting is what earns
+  // Half-Turn Escape: steals against the guarded player simply fail.
+  const guard = fx(state, 'stealGuard', { playerId: c.id });
+  if (guard) {
+    state.actionUsed = true;
+    state.moverId = me.id;
+    logEvent(state, 'steal',
+      `#${me.num} ${me.name} lunges — but #${c.num} ${c.name} escapes on a half-turn!`);
+    return { ok: true, roll: null, escaped: true };
+  }
   const sup = supportMod(state, c.x, c.y, me.team, [me.id, c.id]);
-  const r = dice.check(me.ctl + sup, stealTN(c.ctl));
+  const r = dice.check(effCtl(state, me) + sup, stealTN(effCtl(state, c)));
   Object.assign(r, {
     title: 'Tackle',
     tnLabel: `8 base + ${c.ctl} their CTL`,
@@ -463,7 +568,7 @@ export function passTN(dist) {
 }
 
 export function canPass(state) {
-  if (state.actionUsed) return false;
+  if (state.actionUsed || state.bonusMove) return false;
   const c = carrier(state);
   return !!c && c.team === state.activeTeam && c.id === activePlayerId(state);
 }
@@ -472,15 +577,29 @@ export function doPass(state, dice, x, y) {
   if (!canPass(state)) return { ok: false, reason: 'cannot pass' };
   const passer = carrier(state);
   const dist = cheb(passer.x, passer.y, x, y);
-  if (dist < 1 || dist > PASS_MAX || !inBounds(x, y)) {
+  const flat = fx(state, 'passFlat', { team: passer.team });
+  const auto = fx(state, 'passAuto', { team: passer.team });
+  const maxRange = flat ? Math.max(W, H) : PASS_MAX;
+  if (dist < 1 || dist > maxRange || !inBounds(x, y)) {
     return { ok: false, reason: 'bad target' };
   }
-  const r = dice.check(passer.pas, passTN(dist));
+  const metro = fx(state, 'metronome', { team: passer.team });
+  addCharge(state, passer.team, 'pass', metro ? 2 : 1); // attempting earns
+  const tn = flat ? 6 : passTN(dist);
+  const r = dice.check(passer.pas, tn);
+  if (auto && !r.success) {
+    r.success = true;
+    r.margin = 0;
+    r.total = r.tn;
+  }
   Object.assign(r, {
     title: 'Pass',
-    tnLabel: `6 base + ${Math.floor(dist / 3)} distance`,
+    tnLabel: flat ? '6 flat (ability)' : `6 base + ${Math.floor(dist / 3)} distance`,
     modLabel: `PAS +${passer.pas}`,
+    verdict: auto ? { text: '🎯 LASER — cannot miss!', tone: 'ok' } : undefined,
   });
+  if (flat) consumeFx(state, flat);
+  if (auto) consumeFx(state, auto);
   state.actionUsed = true;
   state.moverId = passer.id;
   state.ball.carrier = null;
@@ -506,6 +625,22 @@ export function doPass(state, dice, x, y) {
     const rel = rec.team === passer.team ? 'receives' : 'INTERCEPTS';
     logEvent(state, rec.team === passer.team ? 'receive' : 'intercept',
       `#${rec.num} ${rec.name} ${rel} the ball`);
+  }
+  const completed = !!rec && rec.team === passer.team && r.success;
+  state.lastPass = {
+    team: passer.team,
+    turn: state.turn,
+    success: completed,
+    receiverId: completed ? rec.id : null,
+  };
+  // One-Two: the receiver bursts onward immediately.
+  const ot = fx(state, 'oneTwo', { team: passer.team });
+  if (ot) {
+    if (completed && rec.id !== passer.id) {
+      state.bonusMove = { playerId: rec.id, left: 2 };
+      logEvent(state, 'ability', `One-two! #${rec.num} ${rec.name} plays on (2 bonus steps)`);
+    }
+    consumeFx(state, ot);
   }
   return { ok: true, roll: r };
 }
@@ -556,12 +691,32 @@ export function doShoot(state, dice, aim, dive) {
   const shooter = carrier(state);
   const keeper = defendingKeeper(state, shooter.team);
   const dist = shotDistance(state, shooter);
-  const r = dice.check(shooter.sho, shotTN(dist, aim));
-  const distPart = Math.ceil(Math.max(0, dist - 2) / 3);
+  addCharge(state, shooter.team, 'shot'); // attempting earns
+  // ability effects on this shot
+  const noDist = fx(state, 'shotNoDist', { team: shooter.team });
+  const autoAcc = fx(state, 'shotAuto', { team: shooter.team });
+  const skipGk = fx(state, 'skipKeeper', { team: shooter.team });
+  const cutIn = fx(state, 'shoMove', { playerId: shooter.id });
+  const shoBonus = cutIn && state.stepsUsed >= 2 ? 2 : 0;
+  let tn = shotTN(dist, aim);
+  let distPart = Math.ceil(Math.max(0, dist - 2) / 3);
+  if (noDist) {
+    tn -= distPart;
+    distPart = 0;
+    consumeFx(state, noDist);
+  }
+  const r = dice.check(shooter.sho + shoBonus, tn);
+  if (autoAcc && !r.success) {
+    r.success = true;
+    r.margin = 0;
+    r.total = r.tn;
+  }
+  if (autoAcc) consumeFx(state, autoAcc);
+  if (cutIn && shoBonus) consumeFx(state, cutIn);
   Object.assign(r, {
     title: 'Shot',
-    tnLabel: `6 base${distPart ? ` + ${distPart} distance` : ''}${aim.col !== 1 ? ' + 1 corner' : ''}`,
-    modLabel: `SHO +${shooter.sho}`,
+    tnLabel: `6 base${distPart ? ` + ${distPart} distance` : ''}${aim.col !== 1 ? ' + 1 corner' : ''}${noDist ? ' (no distance: ability)' : ''}`,
+    modLabel: `SHO +${shooter.sho}${shoBonus ? ' +2 cut inside' : ''}`,
   });
   state.actionUsed = true;
   state.moverId = shooter.id;
@@ -574,10 +729,14 @@ export function doShoot(state, dice, aim, dive) {
   );
   let outcome;
   let keeperRoll = null;
-  const kd = keeperDistance(state, shooter.team);
-  if (r.success && r.doubles) {
+  let kd = keeperDistance(state, shooter.team);
+  const line = fx(state, 'keeperLine', { team: keeper.team });
+  if (line) kd = 0; // sweeper-keeper: never punished for being off his line
+  const siuu = r.success && skipGk;
+  if (siuu) consumeFx(state, skipGk);
+  if (r.success && (r.doubles || siuu)) {
     outcome = 'goal';
-    logEvent(state, 'goal', 'DOUBLES! An unstoppable screamer!');
+    logEvent(state, 'goal', siuu ? 'SIUUU! Nothing the keeper can do!' : 'DOUBLES! An unstoppable screamer!');
   } else if (r.success) {
     // Graded save: the closer the dive to the shot — and the closer the
     // keeper stands to their line — the better the odds. Exact cell from
@@ -590,8 +749,14 @@ export function doShoot(state, dice, aim, dive) {
         `Keeper is stranded ${kd} squares upfield — nobody home. GOAL!`);
     } else {
       const diveName = `${dive.high ? 'high' : 'low'} ${['left', 'center', 'right'][dive.col]}`;
-      const off =
+      let off =
         Math.abs(dive.col - aim.col) + Math.abs((dive.high ? 1 : 0) - (aim.high ? 1 : 0));
+      const cover = fx(state, 'diveCover', { team: keeper.team });
+      if (cover) {
+        off = Math.max(0, off - 1);
+        consumeFx(state, cover);
+        logEvent(state, 'save', 'The keeper seems to cover the whole goal!');
+      }
       const posNote = kd ? `, ${kd} off their line` : '';
       if (off === 0 && kd === 0) {
         outcome = 'save';
@@ -600,7 +765,7 @@ export function doShoot(state, dice, aim, dive) {
         outcome = 'goal';
         logEvent(state, 'goal', `Keeper dove ${diveName} — completely the wrong way! GOAL!`);
       } else {
-        keeperRoll = dice.check(keeper.ctl, 8 + 3 * off + 2 * kd);
+        keeperRoll = dice.check(effCtl(state, keeper), 8 + 3 * off + 2 * kd);
         Object.assign(keeperRoll, {
           title: 'Keeper save',
           tnLabel: `8 base${off ? ` + ${3 * off} (${off} cell${off > 1 ? 's' : ''} off the shot)` : ''}${
@@ -634,6 +799,8 @@ export function doShoot(state, dice, aim, dive) {
       outcome === 'rebound'
         ? { text: '💥 OFF THE FRAME!', tone: 'no' }
         : { text: 'OFF TARGET', tone: 'no' };
+  } else if (siuu) {
+    r.verdict = { text: '⚽ SIUUU! GOAL!', tone: 'ok' };
   } else if (r.doubles) {
     r.verdict = { text: '⚽ GOAL! Unstoppable!', tone: 'ok' };
   } else if (keeperRoll) {
@@ -652,6 +819,7 @@ export function doShoot(state, dice, aim, dive) {
   if (outcome === 'goal') {
     state.score[shooter.team]++;
     logEvent(state, 'score', `${shooter.team.toUpperCase()} scores! ${state.score.home}–${state.score.away}`);
+    addCharge(state, otherTeam(shooter.team), 'concede', 2); // comeback fuel
     kickoff(state, otherTeam(shooter.team));
     endTurn(state, dice, { skipDrift: true });
   } else if (outcome === 'save' || outcome === 'wide') {
@@ -747,8 +915,18 @@ export function kickoff(state, teamWithBall) {
 
 export function endTurn(state, dice, { skipDrift = false } = {}) {
   if (state.over) return;
-  if (!skipDrift) drift(state);
+  const ender = state.activeTeam;
+  // Comeback drip: ending your turn without the ball earns a charge.
+  const c = carrier(state);
+  if (!c || c.team !== ender) addCharge(state, ender, 'nopos');
+  if (!skipDrift) {
+    drift(state);
+    if (fx(state, 'drift2', { team: ender })) drift(state); // Dictate Tempo
+  }
+  state.earned[ender] = {};
+  state.bonusMove = null;
   state.turn++;
+  state.effects = state.effects.filter((e) => e.until >= state.turn);
   if (state.turn > state.maxTurns) {
     state.over = true;
     logEvent(state, 'fulltime',
@@ -775,8 +953,9 @@ export function driftPreview(state) {
   const steps = [];
   for (const p of state.players.filter((q) => q.team === team)) {
     // The controlled mover holds position; so does whoever holds the ball
-    // (drifting a carrier would drag possession around for free).
-    if (p.id === mover || p.id === state.ball.carrier) continue;
+    // (drifting a carrier would drag possession around for free). Frozen
+    // players lie where they were fouled.
+    if (p.id === mover || p.id === state.ball.carrier || isFrozen(state, p.id)) continue;
     const t = targets[p.id];
     const cur = { x: p.x, y: p.y };
     if (cur.x === t.x && cur.y === t.y) continue;
@@ -809,4 +988,183 @@ function drift(state) {
     p.x = s.to[0];
     p.y = s.to[1];
   }
+}
+
+// ---------------------------------------------------------------------------
+// Ability activation. Stacking allowed: any number of activations per turn,
+// but each player's ability at most once per turn. Activations happen before
+// dice are rolled for the affected action (deterministic, so undoable).
+
+export function canActivateAbility(state, playerId) {
+  const p = getPlayer(state, playerId);
+  const def = abilityFor(p);
+  const no = (reason) => ({ ok: false, reason, def });
+  if (!def) return no(null);
+  if (state.over || state.bonusMove) return no('busy');
+  if (def.kind === 'diveCover') return no('reaction'); // via activateDiveBoost
+  if (p.team !== state.activeTeam) return no('not your turn');
+  if (isFrozen(state, playerId)) return no('frozen');
+  if (state.usedAbility[playerId] === state.turn) return no('already used');
+  if (state.charges[p.team] < def.cost) return no('not enough charges');
+  const c = carrier(state);
+  const carrying = state.ball.carrier === playerId;
+  const adjOpps = state.players.filter(
+    (q) => q.team !== p.team && !isFrozen(state, q.id) && cheb(q.x, q.y, p.x, p.y) <= 1
+  );
+  switch (def.kind) {
+    case 'steps':
+      if (def.needs === 'notCarrying' && carrying) return no('not while carrying');
+      if (def.needs === 'oppBall' && !(c && c.team !== p.team)) return no('needs opponent ball');
+      break;
+    case 'autoSteal':
+      if (state.actionUsed) return no('action used');
+      if (!(c && c.team !== p.team && cheb(p.x, p.y, c.x, c.y) <= 1)) return no('no adjacent carrier');
+      break;
+    case 'passAuto':
+    case 'passFlat':
+    case 'oneTwo':
+    case 'shotNoDist':
+    case 'shoMove':
+      if (!carrying || state.actionUsed) return no('needs the ball');
+      break;
+    case 'shotAuto':
+    case 'skipKeeper':
+      if (!carrying || state.actionUsed) return no('needs the ball');
+      if (shotDistance(state, p) > def.maxDist) return no(`needs range ${def.maxDist}`);
+      break;
+    case 'dribbleAuto':
+      if (!carrying) return no('needs the ball');
+      break;
+    case 'freeze':
+    case 'drama':
+      if (!adjOpps.length) return no('no adjacent opponent');
+      return { ok: true, def, targets: adjOpps.map((q) => q.id) };
+    case 'arrive':
+      if (
+        !(
+          state.lastPass &&
+          state.lastPass.turn === state.turn &&
+          state.lastPass.team === p.team &&
+          state.lastPass.success
+        )
+      ) {
+        return no('needs a completed pass this turn');
+      }
+      break;
+    default:
+      break; // always-on kinds: wall, stealGuard, ctlAura, ctlSelf, metronome, drift2, keeperLine
+  }
+  return { ok: true, def };
+}
+
+export function activateAbility(state, playerId, targetId = null) {
+  const chk = canActivateAbility(state, playerId);
+  if (!chk.ok) return chk;
+  const p = getPlayer(state, playerId);
+  const def = chk.def;
+  // freeze/drama need a resolved target before we commit charges
+  let target = null;
+  if (def.kind === 'freeze' || def.kind === 'drama') {
+    const id = targetId || (chk.targets.length === 1 ? chk.targets[0] : null);
+    if (!id || !chk.targets.includes(id)) {
+      return { ok: false, reason: 'target required', needsTarget: true, targets: chk.targets, def };
+    }
+    target = getPlayer(state, id);
+  }
+  state.charges[p.team] -= def.cost;
+  state.usedAbility[playerId] = state.turn;
+  logEvent(state, 'ability', `✨ #${p.num} ${p.name}: ${def.name} (−${def.cost}⚡)`);
+  const t = state.turn;
+  const push = (e) => state.effects.push({ playerId, team: p.team, ...e });
+  switch (def.kind) {
+    case 'steps':
+      push({ kind: 'steps', n: def.n, until: t });
+      break;
+    case 'keeperLine':
+      push({ kind: 'steps', n: 2, until: t });
+      push({ kind: 'keeperLine', until: t + 1 });
+      break;
+    case 'autoSteal': {
+      const c = carrier(state);
+      state.ball.carrier = p.id;
+      state.ball.x = p.x;
+      state.ball.y = p.y;
+      state.actionUsed = true;
+      state.moverId = p.id;
+      logEvent(state, 'steal', `#${p.num} ${p.name} takes it clean off #${c.num} ${c.name} — no contest!`);
+      break;
+    }
+    case 'passAuto':
+    case 'passFlat':
+    case 'oneTwo':
+    case 'shotNoDist':
+    case 'shotAuto':
+    case 'skipKeeper':
+      push({ kind: def.kind, maxDist: def.maxDist, until: t, once: true });
+      break;
+    case 'dribbleAuto':
+      push({ kind: 'dribbleAuto', until: t, freezeBeaten: def.freezeBeaten, once: def.once });
+      if (def.n) push({ kind: 'steps', n: def.n, until: t });
+      break;
+    case 'shoMove':
+      push({ kind: 'shoMove', until: t });
+      break;
+    case 'wall':
+    case 'stealGuard':
+      push({ kind: def.kind, until: t + 1 });
+      break;
+    case 'ctlAura':
+      push({ kind: 'ctlAura', n: def.n, radius: def.radius, until: t + 1 });
+      break;
+    case 'ctlSelf':
+      push({ kind: 'ctlSelf', n: def.n, until: t + 1 });
+      break;
+    case 'metronome':
+      push({ kind: 'metronome', until: t + 1 });
+      break;
+    case 'drift2':
+      push({ kind: 'drift2', until: t });
+      break;
+    case 'freeze':
+    case 'drama':
+      state.frozen[target.id] = t + 1;
+      logEvent(state, 'freeze',
+        `#${target.num} ${target.name} is ${def.kind === 'drama' ? 'booked for the foul' : 'fouled'} — frozen for their next turn!`);
+      if (def.kind === 'drama') {
+        drift(state);
+        drift(state);
+        logEvent(state, 'formation', `${p.team} reset their shape around the free kick`);
+      }
+      break;
+    case 'arrive':
+      state.bonusMove = { playerId, left: p.spd };
+      logEvent(state, 'ability', `#${p.num} ${p.name} arrives late into the play — bonus run!`);
+      break;
+    default:
+      break;
+  }
+  return { ok: true, def };
+}
+
+// Keeper dive boost (Big-Game Save / Giant Frame): a reaction available to
+// the DEFENDING team while their keeper picks a dive.
+export function canDiveBoost(state, defendingTeam) {
+  const keeper = state.players.find((q) => q.team === defendingTeam && q.role === 'GK');
+  const def = abilityFor(keeper);
+  if (!def || def.kind !== 'diveCover') return { ok: false };
+  if (state.usedAbility[keeper.id] === state.turn) return { ok: false, reason: 'already used' };
+  if (state.charges[defendingTeam] < def.cost) return { ok: false, reason: 'not enough charges' };
+  if (fx(state, 'diveCover', { team: defendingTeam })) return { ok: false, reason: 'already active' };
+  return { ok: true, def, keeperId: keeper.id };
+}
+
+export function activateDiveBoost(state, defendingTeam) {
+  const chk = canDiveBoost(state, defendingTeam);
+  if (!chk.ok) return chk;
+  const keeper = getPlayer(state, chk.keeperId);
+  state.charges[defendingTeam] -= chk.def.cost;
+  state.usedAbility[keeper.id] = state.turn;
+  state.effects.push({ kind: 'diveCover', playerId: keeper.id, team: defendingTeam, until: state.turn, once: true });
+  logEvent(state, 'ability', `✨ #${keeper.num} ${keeper.name}: ${chk.def.name} (−${chk.def.cost}⚡)`);
+  return { ok: true, def: chk.def };
 }
