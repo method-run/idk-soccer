@@ -580,6 +580,11 @@ function controllerLabel(team) {
 // The footballer shown on a team panel's active-player card: the current
 // mover on their turn, else their ball carrier, else the last one moved.
 function activeCardPlayer(team) {
+  // A shot is incoming: the defending team's card is their keeper, so the
+  // dive-boost ability is right there to click.
+  if (ui.phase === 'pick-dive' && team !== state.activeTeam) {
+    return state.players.find((p) => p.team === team && p.role === 'GK');
+  }
   const activeId = state.over ? null : activePlayerId(state);
   if (team === state.activeTeam && activeId) {
     const p = getPlayer(state, activeId);
