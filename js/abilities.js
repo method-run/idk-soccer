@@ -36,7 +36,7 @@ export const ABILITIES = {
   gk4: { name: 'Launch It', cost: 1, kind: 'passFlat',
     blurb: 'One pass at target 6, any distance.' },
   d1: { name: 'The Wall', cost: 3, kind: 'wall',
-    blurb: 'Until your next turn, any carrier moving within 1 square of him loses the ball to him.' },
+    blurb: 'Until your next turn, carriers moving onto or orthogonally beside him lose the ball to him.' },
   d2: { name: 'Organizer', cost: 2, kind: 'ctlAura', n: 1, radius: 2,
     blurb: '+1 CTL to teammates within 2 squares until your next turn.' },
   d3: { name: 'Overlap', cost: 1, kind: 'steps', n: 3, needs: 'notCarrying',

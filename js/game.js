@@ -226,12 +226,13 @@ export function setFormation(state, cardId) {
 }
 
 // The Wall: an active zone-denial effect. Returns the guarding defender if
-// (x,y) lies within their 3x3 zone, else null. Frozen guards don't guard.
+// (x,y) lies in their plus-shaped zone (his square + orthogonal neighbors),
+// else null. Frozen guards don't guard.
 export function wallGuardAt(state, x, y, dribblerTeam) {
   for (const e of state.effects) {
     if (e.kind !== 'wall' || e.team === dribblerTeam) continue;
     const g = getPlayer(state, e.playerId);
-    if (g && !isFrozen(state, g.id) && cheb(g.x, g.y, x, y) <= 1) return g;
+    if (g && !isFrozen(state, g.id) && Math.abs(g.x - x) + Math.abs(g.y - y) <= 1) return g;
   }
   return null;
 }
@@ -297,10 +298,8 @@ function bfsInfo(state, playerId, max) {
       if (e.kind !== 'wall' || e.team === player.team) continue;
       const g = getPlayer(state, e.playerId);
       if (!g || isFrozen(state, g.id)) continue;
-      for (let dx = -1; dx <= 1; dx++) {
-        for (let dy = -1; dy <= 1; dy++) {
-          wallTiles.add(`${g.x + dx},${g.y + dy}`);
-        }
+      for (const [dx, dy] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        wallTiles.add(`${g.x + dx},${g.y + dy}`);
       }
     }
   }

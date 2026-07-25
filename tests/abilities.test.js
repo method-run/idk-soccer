@@ -250,7 +250,7 @@ test('One-Two: completed pass grants the receiver a 2-step bonus move', () => {
   assert.equal(s.ball.carrier, mate.id, 'carrier keeps the ball while bursting');
 });
 
-test('The Wall: carriers passing within the 3x3 zone lose the ball', () => {
+test('The Wall: plus-shaped zone strips; diagonals slip past', () => {
   const s = draftMatch(); // away-2 is Virgil van Dyke
   const dice = stubDice([3, 3]);
   const wall = getPlayer(s, 'away-2');
@@ -273,10 +273,19 @@ test('The Wall: carriers passing within the 3x3 zone lose the ball', () => {
   s.ball = { x: 3, y: 10, carrier: runner.id };
   s.moverId = null;
   selectMover(s, runner.id);
-  const res = doMove(s, dice, 3, 7); // path down x=3, adjacent to (4,8)
+  const res = doMove(s, dice, 4, 7); // destination orthogonally beside (4,8)
   assert.ok(res.ok);
   assert.equal(s.ball.carrier, wall.id, 'zone strip: van Dyke takes it');
   assert.equal(s.ball.x, wall.x);
   assert.equal(runner.y, 7, 'runner still completes the move');
+  // diagonal-only contact is safe now: fresh runner slips past corner-wise
+  s.moverId = null;
+  const r2 = getPlayer(s, 'home-7');
+  r2.x = 3;
+  r2.y = 10;
+  s.ball = { x: 3, y: 10, carrier: r2.id };
+  selectMover(s, r2.id);
+  doMove(s, dice, 3, 7); // (3,9)->(3,8)? pathfinder avoids; diagonals of wall are safe
+  assert.equal(s.ball.carrier, r2.id, 'diagonal slip keeps the ball');
   // and the effect expires after away's next turn ends
 });

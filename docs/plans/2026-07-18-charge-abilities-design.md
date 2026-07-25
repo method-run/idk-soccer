@@ -58,7 +58,7 @@ the player's draft card.
 
 | Player | Ability | Cost | Effect (condition) |
 |---|---|---|---|
-| Virgil van Dyke | **The Wall** | 3 | Until your next turn, any carrier moving within 1 square of him loses the ball to him (3×3 denial zone). |
+| Virgil van Dyke | **The Wall** | 3 | Until your next turn, carriers moving onto or orthogonally beside him lose the ball to him (plus-shaped 5-square denial zone; diagonals slip past). |
 | Ruben Diaz | **Organizer** | 2 | Teammates within 2 squares of him get +1 CTL until your next turn. |
 | Ashraf Hakeemi | **Overlap** | 1 | +3 steps this turn (he must not be carrying at activation). |
 | Trent Arnold-Alexander | **Quarterback** | 2 | One pass this turn: no distance penalty, any range (TN 6). |
