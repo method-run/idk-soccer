@@ -249,3 +249,34 @@ test('One-Two: completed pass grants the receiver a 2-step bonus move', () => {
   assert.equal(s.bonusMove, null, 'bonus exhausted');
   assert.equal(s.ball.carrier, mate.id, 'carrier keeps the ball while bursting');
 });
+
+test('The Wall: carriers passing within the 3x3 zone lose the ball', () => {
+  const s = draftMatch(); // away-2 is Virgil van Dyke
+  const dice = stubDice([3, 3]);
+  const wall = getPlayer(s, 'away-2');
+  const runner = getPlayer(s, 'home-6'); // Bonaldo, carrying
+  s.players.forEach((p, i) => {
+    p.x = i % 9;
+    p.y = p.team === 'home' ? 16 : 1;
+  });
+  // away activates The Wall on their turn
+  endTurn(s, dice);
+  wall.x = 4;
+  wall.y = 8;
+  s.charges.away = 3;
+  selectMover(s, wall.id);
+  assert.ok(activateAbility(s, wall.id).ok);
+  endTurn(s, dice); // back to home
+  // runner dribbles PAST the wall (adjacent lane, never through his square)
+  runner.x = 3;
+  runner.y = 10;
+  s.ball = { x: 3, y: 10, carrier: runner.id };
+  s.moverId = null;
+  selectMover(s, runner.id);
+  const res = doMove(s, dice, 3, 7); // path down x=3, adjacent to (4,8)
+  assert.ok(res.ok);
+  assert.equal(s.ball.carrier, wall.id, 'zone strip: van Dyke takes it');
+  assert.equal(s.ball.x, wall.x);
+  assert.equal(runner.y, 7, 'runner still completes the move');
+  // and the effect expires after away's next turn ends
+});

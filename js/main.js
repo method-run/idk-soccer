@@ -10,7 +10,7 @@ import {
   shotDistance, shotTN, passTN, stealTN, PASS_MAX, getFormation, supportMod,
   movePath, occupantAt, keeperDistance, KEEPER_STRANDED,
   canActivateAbility, activateAbility, canDiveBoost, activateDiveBoost,
-  isFrozen, CHARGE_CAP,
+  isFrozen, CHARGE_CAP, wallGuardAt,
 } from './game.js';
 import { abilityFor } from './abilities.js';
 import { aiChooseFormation, aiChooseMove, aiChooseAction, aiPickDive, p2d6 } from './ai.js';
@@ -1034,7 +1034,9 @@ function handleTileHover(x, y) {
   const carrying = state.ball.carrier === mover.id;
   const tiles = mp.path.map(([tx, ty], i) => {
     const occ = occupantAt(state, tx, ty);
-    let challenge = !!(carrying && occ && occ.team !== mover.team);
+    let challenge =
+      !!(carrying && occ && occ.team !== mover.team) ||
+      !!(carrying && wallGuardAt(state, tx, ty, mover.team));
     // contested pickup where the segment ends on a loose ball
     if (
       i === mp.path.length - 1 &&

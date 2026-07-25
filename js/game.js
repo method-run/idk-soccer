@@ -225,6 +225,17 @@ export function setFormation(state, cardId) {
   return { ok: true };
 }
 
+// The Wall: an active zone-denial effect. Returns the guarding defender if
+// (x,y) lies within their 3x3 zone, else null. Frozen guards don't guard.
+export function wallGuardAt(state, x, y, dribblerTeam) {
+  for (const e of state.effects) {
+    if (e.kind !== 'wall' || e.team === dribblerTeam) continue;
+    const g = getPlayer(state, e.playerId);
+    if (g && !isFrozen(state, g.id) && cheb(g.x, g.y, x, y) <= 1) return g;
+  }
+  return null;
+}
+
 // Outnumbering modifier for ball-control contests: each extra footballer
 // adjacent to the contest tile beyond the other side's count is worth +1,
 // capped at ±2. The two primary contestants don't count themselves.
@@ -279,6 +290,20 @@ function bfsInfo(state, playerId, max) {
   const OPP = isCarrier ? 2000 : 400;
   const MATE = 100;
   const TURNC = 1;
+  // active Wall zones are certain turnovers for a carrier: worst hazard
+  const wallTiles = new Set();
+  if (isCarrier) {
+    for (const e of state.effects) {
+      if (e.kind !== 'wall' || e.team === player.team) continue;
+      const g = getPlayer(state, e.playerId);
+      if (!g || isFrozen(state, g.id)) continue;
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          wallTiles.add(`${g.x + dx},${g.y + dy}`);
+        }
+      }
+    }
+  }
   const startKey = `${player.x},${player.y}`;
   // best per tile: lowest composite cost (steps strictly dominate)
   const best = new Map([[startKey, { steps: 0, cost: 0, dir: -1 }]]);
@@ -296,7 +321,13 @@ function bfsInfo(state, playerId, max) {
       if (!inBounds(nx, ny)) continue;
       const key = `${nx},${ny}`;
       const kind = occ.get(key);
-      const hazard = kind === 'opp' ? OPP : kind === 'mate' ? MATE : 0;
+      const hazard = wallTiles.has(key)
+        ? OPP * 3
+        : kind === 'opp'
+          ? OPP
+          : kind === 'mate'
+            ? MATE
+            : 0;
       const turn = cur.dir !== -1 && cur.dir !== d ? TURNC : 0;
       const cost = cur.cost + STEP + hazard + turn;
       const prev = best.get(key);
@@ -375,9 +406,25 @@ export function doMove(state, dice, x, y) {
     'move',
     `#${player.num} ${player.name} ${hadBall ? 'dribbles' : 'runs'} to (${x},${y})`
   );
-  // Dribble challenges for every opponent stood on the path.
+  // Dribble challenges for every opponent stood on the path, and Wall
+  // zone-denial for every path square adjacent to an active Wall.
   for (const [tx, ty] of path) {
     if (state.ball.carrier !== player.id) break; // lost it en route
+    const guard = wallGuardAt(state, tx, ty, player.team);
+    if (guard) {
+      const auto = fx(state, 'dribbleAuto', { playerId: player.id });
+      if (auto) {
+        logEvent(state, 'dribble',
+          `#${player.num} ${player.name} dances through THE WALL's zone untouched!`);
+      } else {
+        state.ball.carrier = guard.id;
+        state.ball.x = guard.x;
+        state.ball.y = guard.y;
+        logEvent(state, 'dribble',
+          `#${player.num} ${player.name} strays into THE WALL — #${guard.num} ${guard.name} strips it clean!`);
+        break;
+      }
+    }
     const occ = occupantAt(state, tx, ty);
     if (occ && occ.team !== player.team) {
       addCharge(state, player.team, 'dribble'); // taking someone on: earn
@@ -413,15 +460,7 @@ function resolveDribbleChallenge(state, dice, dribbler, defender) {
     if (auto.once) consumeFx(state, auto);
     return;
   }
-  const wall = fx(state, 'wall', { playerId: defender.id });
-  if (wall) {
-    state.ball.carrier = defender.id;
-    state.ball.x = defender.x;
-    state.ball.y = defender.y;
-    logEvent(state, 'dribble',
-      `#${dribbler.num} ${dribbler.name} runs into THE WALL — #${defender.num} ${defender.name} takes it!`);
-    return;
-  }
+  // (Wall zone-denial is handled tile-by-tile in doMove before this point.)
   const sup = supportMod(state, defender.x, defender.y, dribbler.team, [
     dribbler.id,
     defender.id,
