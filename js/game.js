@@ -757,8 +757,10 @@ export function doShoot(state, dice, aim, dive) {
   let tn = shotTN(dist, aim);
   let distPart = Math.ceil(Math.max(0, dist - 2) / 3);
   if (noDist) {
-    tn -= distPart;
-    distPart = 0;
+    // long-range specialist: distance penalty halved, rounded down
+    const reduced = Math.floor(distPart / 2);
+    tn -= distPart - reduced;
+    distPart = reduced;
     consumeFx(state, noDist);
   }
   const r = dice.check(shooter.sho + shoBonus, tn);
@@ -771,7 +773,7 @@ export function doShoot(state, dice, aim, dive) {
   if (cutIn && shoBonus) consumeFx(state, cutIn);
   Object.assign(r, {
     title: 'Shot',
-    tnLabel: `6 base${distPart ? ` + ${distPart} distance` : ''}${aim.col !== 1 ? ' + 1 corner' : ''}${noDist ? ' (no distance: ability)' : ''}`,
+    tnLabel: `6 base${distPart ? ` + ${distPart} distance` : ''}${aim.col !== 1 ? ' + 1 corner' : ''}${noDist ? ' (distance halved: ability)' : ''}`,
     modLabel: `SHO +${shooter.sho}${shoBonus ? ' +2 cut inside' : ''}`,
   });
   state.actionUsed = true;

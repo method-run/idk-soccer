@@ -187,6 +187,7 @@ export function render(ctx, state, ui) {
     g.classList.toggle('is-active', ui.activeId === p.id && !ui.aiTurn);
     g.classList.toggle('is-ai-active', ui.activeId === p.id && !!ui.aiTurn);
     g.classList.toggle('is-frozen', !!ui.frozen && ui.frozen.includes(p.id));
+    g.classList.toggle('is-target', !!ui.targets && ui.targets.includes(p.id));
   }
   // ball
   if (state.ball.carrier) {

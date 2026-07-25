@@ -135,6 +135,7 @@ export function renderMeeples(state, ui, tileCenter) {
     el.classList.toggle('meeple-active', activeId === p.id && !ui.aiTurn);
     el.classList.toggle('meeple-ai-active', activeId === p.id && !!ui.aiTurn);
     el.classList.toggle('meeple-frozen', !!ui.frozen && ui.frozen.includes(p.id));
+    el.classList.toggle('meeple-target', !!ui.targets && ui.targets.includes(p.id));
   }
   // ball
   if (!ballEl) {

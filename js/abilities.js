@@ -7,7 +7,7 @@
 //  autoSteal    instant steal from adjacent carrier (consumes the action)
 //  passAuto     next pass auto-succeeds (once)
 //  passFlat     next pass at TN 6, unlimited range (once)
-//  shotNoDist   next shot ignores distance penalty (once)
+//  shotNoDist   next shot: distance penalty halved, rounded down (once)
 //  shotAuto     next shot auto-passes accuracy, keeper still dives (once)
 //  skipKeeper   next on-target shot bypasses the keeper (once)
 //  dribbleAuto  this turn his dribble challenges auto-win
@@ -66,7 +66,7 @@ export const ABILITIES = {
   m7: { name: 'Half-Turn Escape', cost: 2, kind: 'stealGuard',
     blurb: 'Steals against him auto-fail until your next turn.' },
   m8: { name: 'Thunderbolt', cost: 3, kind: 'shotNoDist',
-    blurb: 'One shot with no distance penalty.' },
+    blurb: 'One shot with the distance penalty halved.' },
   f1: { name: 'Slalom', cost: 4, kind: 'dribbleAuto', n: 1,
     blurb: '+1 step; his dribble challenges auto-win this turn.' },
   f2: { name: 'SIUUU', cost: 4, kind: 'skipKeeper', maxDist: 5,

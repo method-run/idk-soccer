@@ -512,6 +512,7 @@ function renderAll() {
     ring: ringData,
     statsBox: statsData,
     frozen: frozenIds,
+    targets: ui.phase === 'aim-ability' ? ui.abilityTargets || [] : [],
   });
   renderClock();
   renderTeamPanels();
@@ -525,7 +526,11 @@ function renderAll() {
   if (ui.view3d) {
     renderMeeples(
       state,
-      { activeId, aiTurn: ui.aiTurn, ring: ringData, statsBox: statsData, frozen: frozenIds },
+      {
+        activeId, aiTurn: ui.aiTurn, ring: ringData, statsBox: statsData,
+        frozen: frozenIds,
+        targets: ui.phase === 'aim-ability' ? ui.abilityTargets || [] : [],
+      },
       tileCenterUV
     );
   }
@@ -1344,12 +1349,17 @@ document.addEventListener('keydown', (e) => {
     if (e.shiftKey) doRedo();
     else doUndo();
   } else if (e.key === 'Escape') {
+    // progressive dismissal: aiming -> stats peek -> any open cards/ring
     if (ui.phase === 'aim-pass' || ui.phase === 'aim-shot' || ui.phase === 'aim-ability') {
       ui.phase = 'idle';
       ui.abilityTargets = null;
       ui.abilityUser = null;
       renderAll();
     } else if (clearInspect()) {
+      renderAll();
+    } else if (ui.playerView !== 0 || ui.flipCard.home || ui.flipCard.away) {
+      ui.playerView = 0; // clear view: unobstructed field
+      ui.flipCard = { home: false, away: false };
       renderAll();
     }
   } else if (e.key === ' ' || e.key.toLowerCase() === 'e') {
@@ -1402,8 +1412,10 @@ import('./icons.js').then(({ STAT_ICONS, statIcon }) => {
     .join(' · ');
 });
 
-// debug/testing hook: read-only access to the live state
+// debug/testing hooks: read the live state, poke the ui, force a render
 window.__gs = () => state;
+window.__ui = () => ui;
+window.__render = () => renderAll();
 
 // PWA service worker
 if ('serviceWorker' in navigator) {

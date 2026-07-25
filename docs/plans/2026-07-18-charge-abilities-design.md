@@ -78,7 +78,7 @@ the player's draft card.
 | Rodri Hernandes | **Metronome** | 1 | Until your next turn, your completed passes earn 2 charges instead of 1. |
 | Frenkie de Young | **Press Resistance** | 3 | This turn, his dribble-through challenges auto-succeed. |
 | Pedri Gonsales | **Half-Turn Escape** | 2 | Pre-declared on your turn: steals against him auto-fail until your next turn. |
-| Federico Valverdi | **Thunderbolt** | 3 | One shot this turn takes no distance penalty. |
+| Federico Valverdi | **Thunderbolt** | 3 | One shot this turn takes half the distance penalty (round down). |
 
 ### Forwards
 

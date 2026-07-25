@@ -289,3 +289,18 @@ test('The Wall: plus-shaped zone strips; diagonals slip past', () => {
   assert.equal(s.ball.carrier, r2.id, 'diagonal slip keeps the ball');
   // and the effect expires after away's next turn ends
 });
+
+test('Thunderbolt: distance penalty halved, not erased', () => {
+  const s = newMatch(); // template roster is fine — inject the effect
+  const striker = getPlayer(s, 'home-7');
+  const occ = occupantAt(s, 4, 8);
+  if (occ) { occ.x = 0; occ.y = 0; }
+  striker.x = 4;
+  striker.y = 8; // dist 8 -> distance part ceil(6/3) = 2
+  s.ball = { x: 4, y: 8, carrier: striker.id };
+  s.effects.push({ kind: 'shotNoDist', team: 'home', playerId: striker.id, until: s.turn, once: true });
+  const res = doShoot(s, stubDice([1, 1]), { col: 1, high: false }, { col: 0, high: true });
+  // normal TN would be 6+2=8; halved distance -> 6+1=7
+  assert.equal(res.roll.tn, 7, 'half of +2 distance remains');
+  assert.match(res.roll.tnLabel, /halved/);
+});
