@@ -779,3 +779,51 @@ test('offside: carrier is exempt and 11+ escapes the flag', () => {
   assert.ok(res2.ok && !res2.offside, 'level enough — play continues');
   assert.equal(s2.activeTeam, 'home');
 });
+
+test('corner: teams shape up, taker kicks then steps in and can run', async () => {
+  const { stepsLeft: sl } = await import('../js/game.js');
+  const s = newMatch();
+  clearBoard(s);
+  const def = getPlayer(s, 'away-3');
+  def.x = 1;
+  def.y = 1;
+  s.ball = { x: 1, y: 1, carrier: def.id };
+  const dice = stubDice([6, 5]);
+  endTurn(s, dice); // away's turn
+  s.moverId = def.id;
+  doPass(s, stubDice([6, 5]), 1, -1); // clearance over own line -> corner
+  const before = s.players.map((p) => `${p.id}:${p.x},${p.y}`).join(' ');
+  endTurn(s, stubDice([3, 3])); // home's corner: set-piece drift + placement
+  const after = s.players.map((p) => `${p.id}:${p.x},${p.y}`).join(' ');
+  assert.notEqual(before, after, 'set-piece shape-up moved players');
+  const taker = getPlayer(s, s.ball.carrier);
+  assert.deepEqual([taker.x, taker.y], [-1, -1], 'taker at the corner flag');
+  assert.equal(sl(s), 0, 'no running before the kick');
+  // super-low direct-shot odds from the flag: distance + tight angle
+  const tn = (await import('../js/game.js')).shotTNFor(s, taker, { col: 1, high: false });
+  assert.ok(tn >= 13, `corner strike target is brutal (got ${tn})`);
+  // kick it in, step onto the pitch, run
+  const mate = s.players.find((p) => p.team === taker.team && p.id !== taker.id && p.role !== 'GK');
+  mate.x = 3;
+  mate.y = 2;
+  assert.ok(doPass(s, stubDice([6, 5]), 3, 2).ok);
+  assert.ok(taker.x >= 0 && taker.y >= 0, 'taker stepped in at the corner');
+  assert.ok(sl(s) > 0, 'free to make a run after the kick');
+});
+
+test('offside whistle triggers a shape reset for both teams', () => {
+  const s = newMatch();
+  clearBoard(s);
+  s.players.filter((p) => p.team === 'away' && p.role !== 'GK')
+    .forEach((p, i) => { p.x = i; p.y = 4 + i; });
+  const runner = getPlayer(s, 'home-6');
+  runner.x = 4;
+  runner.y = 6;
+  s.ball = { x: 8, y: 9, carrier: null };
+  s.moverId = runner.id;
+  const before = s.players.map((p) => `${p.id}:${p.x},${p.y}`).join(' ');
+  const res = doMove(s, stubDice([4, 4]), 4, 3); // flagged
+  assert.ok(res.offside);
+  const after = s.players.map((p) => `${p.id}:${p.x},${p.y}`).join(' ');
+  assert.notEqual(before, after, 'whistle reset positions');
+});

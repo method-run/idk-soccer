@@ -209,9 +209,9 @@ export function selectMover(state, id) {
 // ---------------------------------------------------------------------------
 // Formation targets. Slots slide 1 column toward the ball.
 
-export function formationTargets(state, team) {
+export function formationTargets(state, team, anchor = 1) {
   const card = getFormation(state.formations[team]);
-  const shift = Math.max(-1, Math.min(1, state.ball.x - CENTER_X));
+  const shift = Math.max(-anchor, Math.min(anchor, state.ball.x - CENTER_X));
   const my = (y) => (team === 'home' ? y : mirrorY(y));
   const targets = {};
   const roster = state.players.filter((p) => p.team === team);
@@ -516,6 +516,7 @@ export function doMove(state, dice, x, y) {
       state.ball.y = near.y;
       state.lastTouch = def;
       logEvent(state, 'turnover', `Free kick — #${near.num} ${near.name} takes possession`);
+      setPieceDrift(state, def, 2); // both teams reset to shape at the whistle
       endTurn(state, dice, { skipDrift: true });
       return { ok: true, steps, offside: true };
     }
@@ -865,6 +866,21 @@ export function shotTN(dist, aim) {
   return 6 + Math.ceil(Math.max(0, dist - 2) / 3) + (aim && aim.col !== 1 ? 1 : 0);
 }
 
+// From the byline there's barely any goal to aim at. Within one row of the
+// end line: +6 to the target from wide (3+ columns off center — corners
+// live here), +3 from half-wide.
+export function shotAnglePenalty(state, shooter) {
+  const nearEnd = shooter.team === 'home' ? shooter.y <= 1 : shooter.y >= H - 2;
+  if (!nearEnd) return 0;
+  const off = Math.abs(shooter.x - CENTER_X);
+  return off >= 3 ? 6 : off === 2 ? 3 : 0;
+}
+
+// Full situational shot target — use this everywhere the UI shows odds.
+export function shotTNFor(state, shooter, aim) {
+  return shotTN(shotDistance(state, shooter), aim) + shotAnglePenalty(state, shooter);
+}
+
 export function canShoot(state) {
   if (!canPass(state)) return false; // same base preconditions
   // no shooting directly from a throw-in
@@ -902,7 +918,8 @@ export function doShoot(state, dice, aim, dive) {
   const skipGk = fx(state, 'skipKeeper', { team: shooter.team });
   const cutIn = fx(state, 'shoMove', { playerId: shooter.id });
   const shoBonus = cutIn && state.stepsUsed >= 2 ? 2 : 0;
-  let tn = shotTN(dist, aim);
+  const anglePart = shotAnglePenalty(state, shooter);
+  let tn = shotTN(dist, aim) + anglePart;
   let distPart = Math.ceil(Math.max(0, dist - 2) / 3);
   if (noDist) {
     // long-range specialist: distance penalty halved, rounded down
@@ -1175,6 +1192,12 @@ function resolveRestartFor(state) {
   const r = state.restart;
   if (!r || r.team !== state.activeTeam || state.over) return;
   state.restart = null;
+  if (r.type === 'corner') {
+    setPieceDrift(state, r.team, 3, 2); // crowd the box, anchored to the flag
+    logEvent(state, 'restart', 'Both teams set up for the corner');
+  } else if (r.type === 'goalkick') {
+    setPieceDrift(state, r.team, 2);
+  }
   if (r.type === 'goalkick') {
     const gk = state.players.find((p) => p.team === r.team && p.role === 'GK');
     state.ball.carrier = gk.id;
@@ -1211,10 +1234,9 @@ function resolveRestartFor(state) {
 // loose ball) halt drift for that piece this turn. driftPreview computes the
 // steps without applying them (the UI draws them as arrows); drift applies
 // the identical steps.
-export function driftPreview(state) {
-  const team = state.activeTeam;
+export function driftPreview(state, team = state.activeTeam, anchor = 1) {
   const mover = activePlayerId(state);
-  const targets = formationTargets(state, team);
+  const targets = formationTargets(state, team, anchor);
   const occupied = new Set(state.players.map((p) => `${p.x},${p.y}`));
   const steps = [];
   for (const p of state.players.filter((q) => q.team === team)) {
@@ -1249,12 +1271,20 @@ export function driftPreview(state) {
   return steps;
 }
 
-function drift(state) {
-  for (const s of driftPreview(state)) {
+function drift(state, team = state.activeTeam, anchor = 1) {
+  for (const s of driftPreview(state, team, anchor)) {
     const p = getPlayer(state, s.id);
     p.x = s.to[0];
     p.y = s.to[1];
   }
+}
+
+// Set-piece shape-up: both teams jog toward their formation slots — the
+// defense sets first. Your current formation card IS your set-piece card.
+function setPieceDrift(state, restartTeam, steps, anchor = 1) {
+  const def = otherTeam(restartTeam);
+  for (let i = 0; i < steps; i++) drift(state, def, anchor);
+  for (let i = 0; i < steps; i++) drift(state, restartTeam, anchor);
 }
 
 // ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ import {
   activePlayerId, getPlayer, carrier, reachable, cheb, attackMouth,
   canSteal, canShoot, canPass, shotDistance, shotTN, passTN, stealTN,
   occupantAt, PASS_MAX, keeperDistance, KEEPER_STRANDED, offsideStatus,
+  shotTNFor,
 } from './game.js';
 
 // P(2d6 + mod >= tn)
@@ -108,8 +109,8 @@ export function aiChooseAction(state, dice) {
   const dist = shotDistance(state, me);
   const cornerAim = { col: dice.pick([0, 2]), high: dice.random() < 0.5 };
   const centerAim = { col: 1, high: dice.random() < 0.5 };
-  const pCorner = p2d6(me.sho, shotTN(dist, cornerAim));
-  const pCenter = p2d6(me.sho, shotTN(dist, centerAim));
+  const pCorner = p2d6(me.sho, shotTNFor(state, me, cornerAim));
+  const pCenter = p2d6(me.sho, shotTNFor(state, me, centerAim));
   // Rough keeper-beat odds: corners dodge the dive more often.
   const kd = keeperDistance(state, me.team);
   const stranded = kd >= KEEPER_STRANDED;

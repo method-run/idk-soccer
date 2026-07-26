@@ -10,7 +10,7 @@ import {
   shotDistance, shotTN, passTN, stealTN, PASS_MAX, getFormation, supportMod,
   movePath, occupantAt, keeperDistance, KEEPER_STRANDED,
   canActivateAbility, activateAbility, canDiveBoost, activateDiveBoost,
-  isFrozen, CHARGE_CAP, wallGuardAt, offsideStatus,
+  isFrozen, CHARGE_CAP, wallGuardAt, offsideStatus, shotTNFor,
 } from './game.js';
 import { abilityFor } from './abilities.js';
 import { aiChooseFormation, aiChooseMove, aiChooseAction, aiPickDive, p2d6 } from './ai.js';
@@ -502,13 +502,12 @@ function renderAll() {
       if (ui.phase === 'pick-dive') return ''; // defender can't see the aim
       const c = carrier(state);
       if (!c) return '';
-      const tn = shotTN(shotDistance(state, c), cell);
-      return `${pct(c.sho, tn)}%`;
+      return `${pct(c.sho, shotTNFor(state, c, cell))}%`;
     },
     aimPct: (cell) => {
       if (ui.phase === 'pick-dive') return null; // equal-looking cells
       const c = carrier(state);
-      return c ? pct(c.sho, shotTN(shotDistance(state, c), cell)) : null;
+      return c ? pct(c.sho, shotTNFor(state, c, cell)) : null;
     },
     arrows: human
       ? driftPreview(state).map((s) => ({ ...s, team: state.activeTeam }))
@@ -549,7 +548,7 @@ function buildRing(selectedId) {
   const items = [];
   const p = getPlayer(state, selectedId);
   if (canShoot(state) && state.ball.carrier === selectedId) {
-    const tn = shotTN(shotDistance(state, p), { col: 1, high: false });
+    const tn = shotTNFor(state, p, { col: 1, high: false });
     items.push({ key: 'shoot', label: 'Shoot', sub: `~${pct(p.sho, tn)}% on target` });
   }
   if (canPass(state) && state.ball.carrier === selectedId) {
