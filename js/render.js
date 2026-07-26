@@ -10,26 +10,28 @@ import { W, H, GOAL_COLS, TEAM_META } from './data.js';
 import { STAT_ICONS } from './icons.js';
 import { LOOKS, fallbackLook, headMarkup } from './portraits.js';
 import { abilityFor } from './abilities.js';
-import { formationTargets, activePlayerId, PASS_MAX, cheb, shotTN, passTN } from './game.js';
+import { formationTargets, activePlayerId, PASS_MAX, cheb, shotTN, passTN, isOOBSquare } from './game.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 export const T = 48; // tile px
 const PAD = 12;
 const GR = 38; // goal cell depth (per row)
 const GD = GR * 2; // total goal depth
+const OOB_T = 20; // flattened out-of-bounds ring thickness
+const OGAP = 3; // gap between the touchline and the ring
 const VW = PAD * 2 + GD * 2 + H * T;
-const VH = PAD * 2 + W * T;
+const VH = PAD * 2 + (OOB_T + OGAP) * 2 + W * T;
 
 // Tile (x,y) -> screen top-left corner.
 const tx = (y) => PAD + GD + (H - 1 - y) * T;
-const ty = (x) => PAD + x * T;
+const ty = (x) => PAD + OOB_T + OGAP + x * T;
 const cx = (x, y) => tx(y) + T / 2;
 const cy = (x) => ty(x) + T / 2;
 // Field edges in screen coords.
 const FX0 = PAD + GD;
 const FX1 = PAD + GD + H * T;
-const FY0 = PAD;
-const FY1 = PAD + W * T;
+const FY0 = PAD + OOB_T + OGAP;
+const FY1 = FY0 + W * T;
 
 function el(tag, attrs = {}, parent = null) {
   const e = document.createElementNS(NS, tag);
@@ -67,6 +69,29 @@ export function initBoard(svg, state, handlers) {
   // Right goal is attacked by HOME (engine y=0 end), left by AWAY.
   ctx.goalCellEls.right = drawGoal(svg, ctx, 'right');
   ctx.goalCellEls.left = drawGoal(svg, ctx, 'left');
+
+  // out-of-bounds ring: flattened segments the ball can be played into
+  ctx.oobSegs = [];
+  const gOob = el('g', { class: 'layer-oob' }, svg);
+  for (let ox = -1; ox <= W; ox++) {
+    for (let oy = -1; oy <= H; oy++) {
+      if (!isOOBSquare(ox, oy)) continue;
+      const c = tileCenterUV(ox, oy);
+      const side = ox === -1 || ox === W; // touchline strips (flattened)
+      const end = oy === -1 || oy === H;
+      const w = end && !side ? OOB_T : side && !end ? T - 8 : OOB_T;
+      const h = side && !end ? OOB_T : end && !side ? T - 8 : OOB_T;
+      const seg = el('rect', {
+        x: c.u - w / 2, y: c.v - h / 2, width: w, height: h, rx: 5,
+        class: 'oob-seg',
+      }, gOob);
+      seg.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        handlers.onTileClick?.(ox, oy);
+      });
+      ctx.oobSegs.push({ el: seg, x: ox, y: oy });
+    }
+  }
 
   ctx.gTargets = el('g', { class: 'layer-targets' }, svg);
   ctx.gArrows = el('g', { class: 'layer-arrows' }, svg);
@@ -189,17 +214,11 @@ export function render(ctx, state, ui) {
     g.classList.toggle('is-frozen', !!ui.frozen && ui.frozen.includes(p.id));
     g.classList.toggle('is-target', !!ui.targets && ui.targets.includes(p.id));
   }
-  // ball
-  if (state.ball.carrier) {
-    ctx.ballEl.setAttribute(
-      'transform',
-      `translate(${cx(state.ball.x, state.ball.y) + 13},${cy(state.ball.x) + 13})`
-    );
-  } else {
-    ctx.ballEl.setAttribute(
-      'transform',
-      `translate(${cx(state.ball.x, state.ball.y)},${cy(state.ball.x)})`
-    );
+  // ball (extended coords: it may rest on the out-of-bounds ring)
+  {
+    const bc = tileCenterUV(state.ball.x, state.ball.y);
+    const off = state.ball.carrier ? 13 : 0;
+    ctx.ballEl.setAttribute('transform', `translate(${bc.u + off},${bc.v + off})`);
   }
 
   // formation target ghosts for the human's team
@@ -260,6 +279,15 @@ export function render(ctx, state, ui) {
         c.rect.style.fill = '';
       }
     });
+  }
+
+  // out-of-bounds segments open up as deliberate pass targets
+  for (const seg of ctx.oobSegs) {
+    const on =
+      !!ui.oobPass &&
+      cheb(seg.x, seg.y, ui.oobPass.x, ui.oobPass.y) >= 1 &&
+      cheb(seg.x, seg.y, ui.oobPass.x, ui.oobPass.y) <= ui.oobPass.max;
+    seg.el.classList.toggle('oob-open', on);
   }
 
   // drift-preview arrows
@@ -408,7 +436,17 @@ export function goalSideFor(team) {
   return team === 'home' ? 'right' : 'left';
 }
 
-// SVG user-space center of a tile — used by the meeple layer's projection.
+// SVG user-space center of a tile — extended to the out-of-bounds ring so
+// the ball (and restart takers) can sit on it. Used by ball rendering and
+// the meeple layer's projection.
 export function tileCenterUV(x, y) {
-  return { u: cx(x, y), v: cy(x) };
+  let u;
+  let v;
+  if (y === -1) u = FX1 + OGAP + OOB_T / 2; // right end (behind away's line)
+  else if (y === H) u = FX0 - OGAP - OOB_T / 2; // left end
+  else u = tx(y) + T / 2;
+  if (x === -1) v = FY0 - OGAP - OOB_T / 2; // top touchline
+  else if (x === W) v = FY1 + OGAP + OOB_T / 2; // bottom touchline
+  else v = ty(x) + T / 2;
+  return { u, v };
 }

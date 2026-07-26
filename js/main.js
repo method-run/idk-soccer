@@ -10,7 +10,7 @@ import {
   shotDistance, shotTN, passTN, stealTN, PASS_MAX, getFormation, supportMod,
   movePath, occupantAt, keeperDistance, KEEPER_STRANDED,
   canActivateAbility, activateAbility, canDiveBoost, activateDiveBoost,
-  isFrozen, CHARGE_CAP, wallGuardAt,
+  isFrozen, CHARGE_CAP, wallGuardAt, offsideStatus,
 } from './game.js';
 import { abilityFor } from './abilities.js';
 import { aiChooseFormation, aiChooseMove, aiChooseAction, aiPickDive, p2d6 } from './ai.js';
@@ -433,14 +433,18 @@ function renderAll() {
 
   const highlights = [];
   if (human && ui.phase === 'idle' && stepsLeft(state) > 0) {
+    const carrying = state.ball.carrier === selected;
     for (const key of reachable(state, selected).keys()) {
       const [x, y] = key.split(',').map(Number);
       if (x === selPlayer.x && y === selPlayer.y) continue;
-      highlights.push({ x, y, kind: 'move' });
+      const risky = !carrying && offsideStatus(state, state.activeTeam, y) === 1;
+      highlights.push({ x, y, kind: risky ? 'offside' : 'move' });
     }
   }
+  let oobPass = null;
   if (ui.phase === 'aim-pass') {
     const c = carrier(state);
+    oobPass = { x: c.x, y: c.y, max: PASS_MAX };
     const tiles = [];
     for (let x = 0; x < W; x++) {
       for (let y = 0; y < H; y++) {
@@ -513,6 +517,7 @@ function renderAll() {
     statsBox: statsData,
     frozen: frozenIds,
     targets: ui.phase === 'aim-ability' ? ui.abilityTargets || [] : [],
+    oobPass,
   });
   renderClock();
   renderTeamPanels();
@@ -782,6 +787,11 @@ function renderMoverChip(activeId) {
 
 function hint(p, hasBall) {
   if (ui.phase === 'pick-dive') return 'SHOT INCOMING — tap a goal cell to dive your keeper!';
+  if (state.restartDuty && !state.actionUsed && !ui.aiTurn) {
+    return state.restartDuty.type === 'corner'
+      ? 'CORNER — pass it in, or shoot!'
+      : 'THROW-IN — pass the ball back into play';
+  }
   if (ui.phase === 'aim-ability') return 'Pick your victim — tap an adjacent opponent';
   if (state.bonusMove) return `BONUS RUN — ${stepsLeft(state)} extra steps, tap a square`;
   if (ui.aiTurn) return 'Computer is thinking…';
@@ -808,7 +818,8 @@ function renderButtons() {
   const human = isHumanTurn() && !state.over && ui.phase !== 'busy';
   const aiming =
     ui.phase === 'aim-pass' || ui.phase === 'aim-shot' || ui.phase === 'aim-ability';
-  $('btn-end').disabled = !human || aiming;
+  $('btn-end').disabled =
+    !human || aiming || (state.restartDuty && !state.actionUsed);
   $('btn-cancel').hidden = !aiming;
   $('btn-undo').disabled = !human || aiming || !hist.undo.length;
   $('btn-redo').disabled = !human || aiming || !hist.redo.length;
@@ -1009,8 +1020,12 @@ async function handleTileClick(x, y) {
     if (!reachable(state, selected).get(`${x},${y}`)) return;
     pushHistory();
     ui.phase = 'busy';
-    await diceAction(() => doMove(state, dice, x, y));
+    const res = await diceAction(() => doMove(state, dice, x, y));
     ui.phase = 'idle';
+    if (res && res.offside) {
+      beginTurn(); // the whistle went — possession changes hands
+      return;
+    }
     renderAll();
   } else if (ui.phase === 'aim-pass') {
     ui.phase = 'busy';
@@ -1252,6 +1267,11 @@ async function runAiTurn() {
   const mv = aiChooseMove(state, dice);
   if (mv) {
     await diceAction(() => doMove(state, dice, mv.x, mv.y));
+    if (state.turn !== turnBefore) {
+      // offside whistle mid-move: turn already changed hands
+      beginTurn();
+      return;
+    }
     renderAll();
     await sleep(650);
     await pauseGate(mySession);
@@ -1364,6 +1384,7 @@ document.addEventListener('keydown', (e) => {
     }
   } else if (e.key === ' ' || e.key.toLowerCase() === 'e') {
     e.preventDefault();
+    if (state.restartDuty && !state.actionUsed) return; // must take it
     if (isHumanTurn() && !state.over && ui.phase === 'idle') {
       clearInspect();
       endTurn(state, dice);

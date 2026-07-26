@@ -7,7 +7,7 @@ import { W, H } from './data.js';
 import {
   activePlayerId, getPlayer, carrier, reachable, cheb, attackMouth,
   canSteal, canShoot, canPass, shotDistance, shotTN, passTN, stealTN,
-  occupantAt, PASS_MAX, keeperDistance, KEEPER_STRANDED,
+  occupantAt, PASS_MAX, keeperDistance, KEEPER_STRANDED, offsideStatus,
 } from './game.js';
 
 // P(2d6 + mod >= tn)
@@ -35,10 +35,13 @@ export function aiChooseFormation(state) {
 
 export function aiChooseMove(state, dice) {
   const me = getPlayer(state, activePlayerId(state));
-  const tiles = [...reachable(state, me.id).keys()].map((k) => {
-    const [x, y] = k.split(',').map(Number);
-    return { x, y };
-  });
+  const iCarrier = state.ball.carrier === me.id;
+  const tiles = [...reachable(state, me.id).keys()]
+    .map((k) => {
+      const [x, y] = k.split(',').map(Number);
+      return { x, y };
+    })
+    .filter((t) => iCarrier || offsideStatus(state, me.team, t.y) === 0);
   const mouth = attackMouth(me.team);
   const iCarry = state.ball.carrier === me.id;
   const oppCarrier = carrier(state) && carrier(state).team !== me.team ? carrier(state) : null;
@@ -79,6 +82,27 @@ export function aiChooseAction(state, dice) {
   if (canSteal(state)) return { type: 'steal' };
   const me = getPlayer(state, activePlayerId(state));
   if (!canPass(state)) return { type: 'none' };
+
+  // Restart duty: the ball MUST be put back in play. Best teammate ball,
+  // else hoof it toward the middle of the pitch.
+  if (state.restartDuty && state.restartDuty.playerId === me.id) {
+    let best = null;
+    let bestP = -1;
+    for (const p of state.players) {
+      if (p.team !== me.team || p.id === me.id || p.role === 'GK') continue;
+      const d = cheb(me.x, me.y, p.x, p.y);
+      if (d < 1 || d > PASS_MAX) continue;
+      const prob = p2d6(me.pas, passTN(d));
+      if (prob > bestP) {
+        bestP = prob;
+        best = p;
+      }
+    }
+    if (best) return { type: 'pass', x: best.x, y: best.y };
+    const tx = Math.max(0, Math.min(W - 1, 4));
+    const ty = Math.max(0, Math.min(H - 1, Math.round(H / 2)));
+    return { type: 'pass', x: tx, y: ty };
+  }
 
   // Shoot?
   const dist = shotDistance(state, me);

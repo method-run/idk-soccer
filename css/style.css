@@ -415,6 +415,21 @@ body:not(.view3d) #meeple-layer { display: none; }
 .hl-move { fill: rgba(255, 255, 255, 0.22); stroke: rgba(255,255,255,0.5); stroke-width: 1; }
 .hl-move:hover { fill: rgba(255, 255, 255, 0.38); }
 .hl-pass { fill: rgba(242, 193, 78, 0.15); stroke: rgba(255, 255, 255, 0.22); stroke-width: 1; }
+.hl-offside {
+  fill: rgba(214, 60, 40, 0.4); stroke: rgba(255, 96, 70, 0.85); stroke-width: 1.5;
+}
+.hl-offside:hover { fill: rgba(214, 60, 40, 0.6); }
+
+/* out-of-bounds ring */
+.oob-seg {
+  fill: rgba(24, 14, 6, 0.45); stroke: rgba(240, 230, 205, 0.15); stroke-width: 1;
+}
+body.view3d .oob-seg { fill: rgba(20, 11, 4, 0.5); }
+.oob-seg.oob-open {
+  fill: rgba(96, 178, 70, 0.4); stroke: var(--accent); stroke-width: 1.5;
+  cursor: pointer; animation: pulse 1.2s ease-in-out infinite;
+}
+.oob-seg.oob-open:hover { fill: rgba(96, 178, 70, 0.65); }
 .hl-pass:hover { stroke: rgba(255, 255, 255, 0.6); stroke-width: 2; }
 .hl-tn { fill: rgba(255, 233, 176, 0.9); font-size: 10px; text-anchor: end; pointer-events: none; }
 

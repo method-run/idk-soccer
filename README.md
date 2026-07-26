@@ -4,6 +4,10 @@ A turn-based soccer board game as a standalone PWA: 9×18 pitch, formation
 cards, RPG-style stats, and 2d6 dice for every contested moment. Plays
 offline, installs to a home screen, and converts to pencil & paper.
 
+**Play it: <https://method-run.github.io/idk-soccer/>**
+
+![Grid Soccer — wooden meeple board with team panels, charges and abilities](docs/screenshot.png)
+
 ## Run it
 
 Any static file server works (service workers need localhost or https):

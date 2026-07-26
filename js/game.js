@@ -14,6 +14,17 @@ export function inBounds(x, y) {
   return x >= 0 && x < W && y >= 0 && y < H;
 }
 
+// The out-of-bounds ring: one square deep around the field, EXCEPT behind
+// the goals (those columns are the goal mouth). Players can never stand
+// there mid-play; the ball can (throw-ins, corners), and restart takers
+// stand there to put it back in.
+export function isOOBSquare(x, y) {
+  if (inBounds(x, y)) return false;
+  if (x < -1 || x > W || y < -1 || y > H) return false;
+  if ((y === -1 || y === H) && GOAL_COLS.includes(x)) return false; // the goal itself
+  return true;
+}
+
 export function cheb(ax, ay, bx, by) {
   return Math.max(Math.abs(ax - bx), Math.abs(ay - by));
 }
@@ -82,6 +93,9 @@ export function newMatch({ mode = 'pve', maxTurns = MAX_TURNS, rosters = null } 
     usedAbility: {}, // playerId -> turn of last activation (once per turn each)
     bonusMove: null, // {playerId, left} — ability-granted move for a non-mover
     lastPass: null, // {team, turn, success, receiverId}
+    lastTouch: null, // team that last played the ball (out-of-bounds calls)
+    restart: null, // {team, type: 'throw'|'corner'|'goalkick', x, y} pending
+    restartDuty: null, // {playerId, type} — taker standing OOB this turn
   };
   kickoff(state, 'home');
   return state;
@@ -181,6 +195,7 @@ export function activePlayerId(state) {
 
 // Pick which footballer to control this turn. Free until you move or act.
 export function selectMover(state, id) {
+  if (state.restartDuty) return { ok: false, reason: 'take the restart first' };
   if (state.moved || state.actionUsed) return { ok: false, reason: 'already committed' };
   const p = getPlayer(state, id);
   if (!p || p.team !== state.activeTeam) return { ok: false, reason: 'not your player' };
@@ -254,6 +269,32 @@ export function supportMod(state, x, y, team, excludeIds = []) {
 }
 
 // ---------------------------------------------------------------------------
+// Offside (movement-based simplification): the line is the deepest
+// defending OUTFIELDER's row. A non-carrier attacker in the attacking half
+// may end a move one row past it — but the linesman calls it unless the
+// escape roll hits 11+ — and may never end further than that. Carriers are
+// exempt (the ball can't be offside at your own feet).
+
+export function offsideLine(state, attackTeam) {
+  const def = otherTeam(attackTeam);
+  const rows = state.players
+    .filter((p) => p.team === def && p.role !== 'GK' && !isFrozen(state, p.id))
+    .map((p) => p.y);
+  if (!rows.length) return attackTeam === 'home' ? 0 : H - 1;
+  return attackTeam === 'home' ? Math.min(...rows) : Math.max(...rows);
+}
+
+// 0 = onside, 1 = risky (one row past the line), 2 = disallowed
+export function offsideStatus(state, team, y) {
+  const mid = Math.floor(H / 2);
+  const inAttackingHalf = team === 'home' ? y < mid : y >= mid;
+  if (!inAttackingHalf) return 0;
+  const line = offsideLine(state, team);
+  const past = team === 'home' ? line - y : y - line;
+  return past <= 0 ? 0 : past === 1 ? 1 : 2;
+}
+
+// ---------------------------------------------------------------------------
 // Movement. SPD is a step budget spent in any number of segments across the
 // turn — before and/or after your ball action. Occupied tiles can be moved
 // THROUGH (never ended on); dribbling through an opponent triggers a
@@ -269,9 +310,7 @@ export function moveRange(state, player) {
 
 // Steps the current mover still has this turn.
 export function stepsLeft(state) {
-  if (state.bonusMove) return state.bonusMove.left;
-  const p = getPlayer(state, activePlayerId(state));
-  return Math.max(0, moveRange(state, p) - state.stepsUsed);
+  return budgetFor(state, activePlayerId(state));
 }
 
 // 8-directional path search. Occupied tiles are traversable but not
@@ -338,13 +377,23 @@ function bfsInfo(state, playerId, max) {
     }
   }
   const dist = new Map();
+  const checkOffside = !isCarrier && player.team === state.activeTeam;
   for (const [key, b] of best) {
-    if (!occ.has(key)) dist.set(key, b.steps);
+    if (occ.has(key)) continue;
+    if (checkOffside) {
+      const ky = Number(key.split(',')[1]);
+      if (offsideStatus(state, player.team, ky) === 2) continue; // always called
+    }
+    dist.set(key, b.steps);
   }
   return { dist, parent, startKey };
 }
 
 function budgetFor(state, playerId) {
+  // a restart taker stands out of bounds and must play the ball first
+  if (state.restartDuty && state.restartDuty.playerId === playerId && !state.actionUsed) {
+    return 0;
+  }
   if (state.bonusMove && state.bonusMove.playerId === playerId) {
     return state.bonusMove.left;
   }
@@ -400,6 +449,7 @@ export function doMove(state, dice, x, y) {
   }
 
   const hadBall = state.ball.carrier === player.id;
+  if (hadBall) state.lastTouch = player.team;
   logEvent(
     state,
     'move',
@@ -419,6 +469,7 @@ export function doMove(state, dice, x, y) {
         state.ball.carrier = guard.id;
         state.ball.x = guard.x;
         state.ball.y = guard.y;
+        state.lastTouch = guard.team;
         logEvent(state, 'dribble',
           `#${player.num} ${player.name} strays into THE WALL — #${guard.num} ${guard.name} strips it clean!`);
         break;
@@ -432,6 +483,43 @@ export function doMove(state, dice, x, y) {
   }
   player.x = x;
   player.y = y;
+  // Offside trap: a non-carrier ending one row past the line gets flagged
+  // unless the escape roll hits 11+ — turnover and the whistle ends the turn.
+  if (!hadBall && state.ball.carrier !== player.id &&
+      offsideStatus(state, player.team, y) === 1) {
+    const r = dice.check(0, 11);
+    Object.assign(r, {
+      title: 'Offside trap',
+      tnLabel: '11+ to stay onside',
+      modLabel: 'no modifier',
+      verdict: r.success
+        ? { text: '🏳 PLAYS ON — level enough!', tone: 'mid' }
+        : { text: '🚩 OFFSIDE! Turnover', tone: 'no' },
+    });
+    logEvent(state, 'offside',
+      `#${player.num} ${player.name} pushes past the last defender: ${r.a}+${r.b}=${r.total} vs 11 — ${r.success ? 'plays on' : 'FLAGGED'}`,
+      r);
+    if (!r.success) {
+      const def = otherTeam(player.team);
+      let near = null;
+      let bd = Infinity;
+      for (const q of state.players) {
+        if (q.team !== def || isFrozen(state, q.id)) continue;
+        const d = cheb(q.x, q.y, x, y);
+        if (d < bd) {
+          bd = d;
+          near = q;
+        }
+      }
+      state.ball.carrier = near.id;
+      state.ball.x = near.x;
+      state.ball.y = near.y;
+      state.lastTouch = def;
+      logEvent(state, 'turnover', `Free kick — #${near.num} ${near.name} takes possession`);
+      endTurn(state, dice, { skipDrift: true });
+      return { ok: true, steps, offside: true };
+    }
+  }
   if (state.ball.carrier === player.id) {
     state.ball.x = x;
     state.ball.y = y;
@@ -489,13 +577,14 @@ function resolveDribbleChallenge(state, dice, dribbler, defender) {
     }
   );
   if (through) return;
+  state.lastTouch = defender.team;
   if (deficit >= 3) {
     state.ball.carrier = defender.id;
     state.ball.x = defender.x;
     state.ball.y = defender.y;
   } else {
     scatterBall(state, dice, defender.x, defender.y, 1);
-    logEvent(state, 'loose', 'The ball squirts free!');
+    if (!state.restart) logEvent(state, 'loose', 'The ball squirts free!');
   }
 }
 
@@ -510,6 +599,7 @@ function resolvePickup(state, dice, player) {
   );
   if (opps.length === 0) {
     state.ball.carrier = player.id;
+    state.lastTouch = player.team;
     logEvent(state, 'pickup', `#${player.num} ${player.name} collects the loose ball`);
     return;
   }
@@ -533,14 +623,47 @@ function resolvePickup(state, dice, player) {
   );
   if (won) {
     state.ball.carrier = player.id;
+    state.lastTouch = player.team;
     logEvent(state, 'pickup', `#${player.num} ${player.name} wins the ball`);
   } else {
+    state.lastTouch = opp.team;
     scatterBall(state, dice, state.ball.x, state.ball.y, 1);
-    logEvent(state, 'loose', `#${opp.num} ${opp.name} pokes it away — ball is loose`);
+    if (!state.restart) logEvent(state, 'loose', `#${opp.num} ${opp.name} pokes it away — ball is loose`);
   }
 }
 
-// Random-direction scatter to a free in-bounds tile.
+// The ball crosses a boundary: park it on the ring and queue the restart.
+// Restart always goes to the opponent of whoever touched it last; over the
+// end line that's a corner (defense touched last) or goal kick (attack did).
+function ballOut(state, x, y) {
+  // snap into the ring (a diagonal scatter can overshoot both axes)
+  const bx = Math.max(-1, Math.min(W, x));
+  const by = Math.max(-1, Math.min(H, y));
+  const toTeam = otherTeam(state.lastTouch || state.activeTeam);
+  let type = 'throw';
+  let rx = bx;
+  let ry = by;
+  if (by === -1 || by === H) {
+    // over an end line: away defends y=-1's end, home defends y=H's
+    const defender = by === -1 ? 'away' : 'home';
+    if (toTeam === defender) {
+      type = 'goalkick';
+    } else {
+      type = 'corner';
+      rx = bx < CENTER_X ? -1 : W; // ball placed in the corner arc
+    }
+  }
+  // keep the resting square a real ring square
+  if (!isOOBSquare(rx, ry)) rx = rx < CENTER_X ? Math.max(-1, rx - 3) : Math.min(W, rx + 3);
+  state.ball.carrier = null;
+  state.ball.x = rx;
+  state.ball.y = ry;
+  state.restart = { team: toTeam, type, x: rx, y: ry };
+  const label = { throw: 'Throw-in', corner: 'CORNER', goalkick: 'Goal kick' }[type];
+  logEvent(state, 'out', `Out of bounds! ${label} to ${toTeam}`);
+}
+
+// Random-direction scatter; may cross the boundary and go out of bounds.
 function scatterBall(state, dice, fromX, fromY, tiles) {
   state.ball.carrier = null;
   const dirs = [...DIRS8];
@@ -550,11 +673,15 @@ function scatterBall(state, dice, fromX, fromY, tiles) {
     [dirs[i], dirs[j]] = [dirs[j], dirs[i]];
   }
   for (const [dx, dy] of dirs) {
-    const nx = Math.max(0, Math.min(W - 1, fromX + dx * tiles));
-    const ny = Math.max(0, Math.min(H - 1, fromY + dy * tiles));
-    if (!occupantAt(state, nx, ny) && !(nx === fromX && ny === fromY)) {
+    const nx = fromX + dx * tiles;
+    const ny = fromY + dy * tiles;
+    if (inBounds(nx, ny) && !occupantAt(state, nx, ny) && !(nx === fromX && ny === fromY)) {
       state.ball.x = nx;
       state.ball.y = ny;
+      return;
+    }
+    if (!inBounds(nx, ny)) {
+      ballOut(state, nx, ny);
       return;
     }
   }
@@ -610,6 +737,7 @@ export function doSteal(state, dice) {
     state.ball.carrier = me.id;
     state.ball.x = me.x;
     state.ball.y = me.y;
+    state.lastTouch = me.team;
   }
   return { ok: true, roll: r };
 }
@@ -636,11 +764,12 @@ export function doPass(state, dice, x, y) {
   const flat = fx(state, 'passFlat', { team: passer.team });
   const auto = fx(state, 'passAuto', { team: passer.team });
   const maxRange = flat ? Math.max(W, H) : PASS_MAX;
-  if (dist < 1 || dist > maxRange || !inBounds(x, y)) {
+  if (dist < 1 || dist > maxRange || !(inBounds(x, y) || isOOBSquare(x, y))) {
     return { ok: false, reason: 'bad target' };
   }
   const metro = fx(state, 'metronome', { team: passer.team });
   addCharge(state, passer.team, 'pass', metro ? 2 : 1); // attempting earns
+  state.lastTouch = passer.team;
   const tn = flat ? 6 : passTN(dist);
   const r = dice.check(passer.pas, tn);
   if (auto && !r.success) {
@@ -666,14 +795,18 @@ export function doPass(state, dice, x, y) {
     r
   );
   if (r.success) {
-    state.ball.x = x;
-    state.ball.y = y;
+    if (isOOBSquare(x, y)) {
+      ballOut(state, x, y); // deliberate ball out (clearance / killing time)
+    } else {
+      state.ball.x = x;
+      state.ball.y = y;
+    }
   } else {
     const missBy = -r.margin;
-    state.ball.x = x;
-    state.ball.y = y;
-    scatterBall(state, dice, x, y, missBy <= 2 ? 1 : 2);
-    logEvent(state, 'loose', 'The pass goes astray');
+    state.ball.x = Math.max(-1, Math.min(W, x));
+    state.ball.y = Math.max(-1, Math.min(H, y));
+    scatterBall(state, dice, state.ball.x, state.ball.y, missBy <= 2 ? 1 : 2);
+    if (!state.restart) logEvent(state, 'loose', 'The pass goes astray');
   }
   const rec = occupantAt(state, state.ball.x, state.ball.y);
   if (rec) {
@@ -697,6 +830,16 @@ export function doPass(state, dice, x, y) {
       logEvent(state, 'ability', `One-two! #${rec.num} ${rec.name} plays on (2 bonus steps)`);
     }
     consumeFx(state, ot);
+  }
+  // restart taker steps onto the pitch after putting the ball in
+  if (state.restartDuty && state.restartDuty.playerId === passer.id) {
+    state.restartDuty = null;
+    placeAt(state, passer,
+      Math.max(0, Math.min(W - 1, passer.x)),
+      Math.max(0, Math.min(H - 1, passer.y)));
+    if (!state.ball.carrier && state.ball.x === passer.x && state.ball.y === passer.y) {
+      resolvePickup(state, dice, passer); // stumbled onto his own loose throw
+    }
   }
   return { ok: true, roll: r };
 }
@@ -723,7 +866,11 @@ export function shotTN(dist, aim) {
 }
 
 export function canShoot(state) {
-  return canPass(state); // same preconditions: forced mover holds the ball
+  if (!canPass(state)) return false; // same base preconditions
+  // no shooting directly from a throw-in
+  const duty = state.restartDuty;
+  if (duty && duty.type === 'throw' && state.ball.carrier === duty.playerId) return false;
+  return true;
 }
 
 export function defendingKeeper(state, attackingTeam) {
@@ -748,6 +895,7 @@ export function doShoot(state, dice, aim, dive) {
   const keeper = defendingKeeper(state, shooter.team);
   const dist = shotDistance(state, shooter);
   addCharge(state, shooter.team, 'shot'); // attempting earns
+  state.lastTouch = shooter.team;
   // ability effects on this shot
   const noDist = fx(state, 'shotNoDist', { team: shooter.team });
   const autoAcc = fx(state, 'shotAuto', { team: shooter.team });
@@ -880,11 +1028,19 @@ export function doShoot(state, dice, aim, dive) {
     addCharge(state, otherTeam(shooter.team), 'concede', 2); // comeback fuel
     kickoff(state, otherTeam(shooter.team));
     endTurn(state, dice, { skipDrift: true });
-  } else if (outcome === 'save' || outcome === 'wide') {
+  } else if (outcome === 'save') {
     state.ball.carrier = keeper.id;
     state.ball.x = keeper.x;
     state.ball.y = keeper.y;
-    if (outcome === 'wide') logEvent(state, 'miss', 'Off target — keeper collects');
+    state.lastTouch = keeper.team;
+    endTurn(state, dice, {});
+  } else if (outcome === 'wide') {
+    // sails out beside the goal on the side it was aimed -> goal kick
+    const outY = shooter.team === 'home' ? -1 : H;
+    const side =
+      aim.col === 0 ? [0, 1, 2] : aim.col === 2 ? [6, 7, 8] : [0, 1, 2, 6, 7, 8];
+    logEvent(state, 'miss', 'Off target — it sails out of play');
+    ballOut(state, dice.pick(side), outY);
     endTurn(state, dice, {});
   } else {
     // rebound: loose ball in front of the goal
@@ -905,15 +1061,19 @@ export function doShoot(state, dice, aim, dive) {
 // ---------------------------------------------------------------------------
 // Kickoff / reset after a goal (and at match start)
 
-function placeAt(state, player, x, y) {
-  // Snap to (x,y), or the nearest free tile if occupied.
-  for (let radius = 0; radius < Math.max(W, H); radius++) {
+function placeAt(state, player, x, y, allowed = null) {
+  // Snap to (x,y), or the nearest free (and allowed) tile if occupied.
+  for (let radius = 0; radius < Math.max(W, H) * 2; radius++) {
     for (let dy = -radius; dy <= radius; dy++) {
       for (let dx = -radius; dx <= radius; dx++) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
         const nx = x + dx;
         const ny = y + dy;
-        if (inBounds(nx, ny) && !occupantAt(state, nx, ny)) {
+        if (
+          inBounds(nx, ny) &&
+          !occupantAt(state, nx, ny) &&
+          (!allowed || allowed(nx, ny))
+        ) {
           player.x = nx;
           player.y = ny;
           return;
@@ -927,6 +1087,9 @@ export function kickoff(state, teamWithBall) {
   const mid = Math.floor(H / 2);
   state.moverId = null;
   state.stepsUsed = 0;
+  state.restart = null;
+  state.restartDuty = null;
+  state.lastTouch = teamWithBall;
   state.ball.carrier = null;
   state.ball.x = CENTER_X;
   state.ball.y = teamWithBall === 'home' ? mid : mid - 1;
@@ -939,7 +1102,11 @@ export function kickoff(state, teamWithBall) {
     const targets = formationTargets(state, team);
     for (const p of state.players.filter((q) => q.team === team)) {
       const t = targets[p.id];
-      placeAt(state, p, t.x, t.y);
+      // Kickoff law: everyone starts in their own half, even when the
+      // formation card wants forwards pushed up.
+      const ty = team === 'home' ? Math.max(t.y, mid) : Math.min(t.y, mid - 1);
+      const ownHalf = team === 'home' ? (nx, ny) => ny >= mid : (nx, ny) => ny < mid;
+      placeAt(state, p, t.x, ty, ownHalf);
     }
   }
   // Clear the kickoff tile if a formation slot landed on it.
@@ -983,6 +1150,7 @@ export function endTurn(state, dice, { skipDrift = false } = {}) {
   }
   state.earned[ender] = {};
   state.bonusMove = null;
+  state.restartDuty = null;
   state.turn++;
   state.effects = state.effects.filter((e) => e.until >= state.turn);
   if (state.turn > state.maxTurns) {
@@ -996,6 +1164,46 @@ export function endTurn(state, dice, { skipDrift = false } = {}) {
   state.moved = false;
   state.stepsUsed = 0;
   state.actionUsed = false;
+  resolveRestartFor(state);
+}
+
+// A pending restart resolves the moment the awarded team's turn begins:
+// goal kicks go straight to the keeper's hands; for throw-ins and corners
+// the nearest outfielder stands on the ring square with the ball and must
+// put it back in play (pass only for throws; corners may also shoot).
+function resolveRestartFor(state) {
+  const r = state.restart;
+  if (!r || r.team !== state.activeTeam || state.over) return;
+  state.restart = null;
+  if (r.type === 'goalkick') {
+    const gk = state.players.find((p) => p.team === r.team && p.role === 'GK');
+    state.ball.carrier = gk.id;
+    state.ball.x = gk.x;
+    state.ball.y = gk.y;
+    state.lastTouch = r.team;
+    logEvent(state, 'restart', `Goal kick — #${gk.num} ${gk.name} restarts`);
+    return;
+  }
+  let taker = null;
+  let bestD = Infinity;
+  for (const p of state.players) {
+    if (p.team !== r.team || p.role === 'GK' || isFrozen(state, p.id)) continue;
+    const d = cheb(p.x, p.y, r.x, r.y);
+    if (d < bestD) {
+      bestD = d;
+      taker = p;
+    }
+  }
+  taker.x = r.x;
+  taker.y = r.y;
+  state.ball.carrier = taker.id;
+  state.ball.x = r.x;
+  state.ball.y = r.y;
+  state.lastTouch = r.team;
+  state.moverId = taker.id;
+  state.restartDuty = { playerId: taker.id, type: r.type };
+  logEvent(state, 'restart',
+    `${r.type === 'corner' ? 'Corner' : 'Throw-in'} — #${taker.num} ${taker.name} takes it`);
 }
 
 // Every active-team footballer except the controlled mover drifts 1 step
@@ -1025,6 +1233,7 @@ export function driftPreview(state) {
       if (!inBounds(nx, ny)) continue;
       if (occupied.has(`${nx},${ny}`)) continue;
       if (!state.ball.carrier && state.ball.x === nx && state.ball.y === ny) continue;
+      if (offsideStatus(state, team, ny) > 0) continue; // hold the line
       const d = (nx - t.x) ** 2 + (ny - t.y) ** 2;
       if (d < bestD) {
         bestD = d;
@@ -1147,6 +1356,7 @@ export function activateAbility(state, playerId, targetId = null) {
       state.ball.carrier = p.id;
       state.ball.x = p.x;
       state.ball.y = p.y;
+      state.lastTouch = p.team;
       state.actionUsed = true;
       state.moverId = p.id;
       logEvent(state, 'steal', `#${p.num} ${p.name} takes it clean off #${c.num} ${c.name} — no contest!`);

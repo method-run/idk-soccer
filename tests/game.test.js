@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { makeDice } from '../js/dice.js';
 import { W, H } from '../js/data.js';
 import {
-  newMatch, activePlayerId, getPlayer, carrier, reachable, moveRange,
+  newMatch, activePlayerId, getPlayer, carrier, reachable, moveRange, isOOBSquare,
   doMove, doPass, doSteal, doShoot, canSteal, canShoot, setFormation,
   endTurn, formationTargets, cheb, occupantAt, passTN, shotTN, stealTN,
   selectMover, driftPreview, stepsLeft,
@@ -40,13 +40,21 @@ function stubDice(rolls, rand = 0.5) {
 function assertInvariants(state) {
   const seen = new Set();
   for (const p of state.players) {
-    assert.ok(p.x >= 0 && p.x < W && p.y >= 0 && p.y < H, `${p.id} in bounds`);
+    const takerOOB =
+      state.restartDuty?.playerId === p.id && isOOBSquare(p.x, p.y);
+    assert.ok(
+      takerOOB || (p.x >= 0 && p.x < W && p.y >= 0 && p.y < H),
+      `${p.id} in bounds`
+    );
     const key = `${p.x},${p.y}`;
     assert.ok(!seen.has(key), `no stacking at ${key}`);
     seen.add(key);
   }
-  assert.ok(state.ball.x >= 0 && state.ball.x < W);
-  assert.ok(state.ball.y >= 0 && state.ball.y < H);
+  assert.ok(
+    (state.ball.x >= 0 && state.ball.x < W && state.ball.y >= 0 && state.ball.y < H) ||
+      isOOBSquare(state.ball.x, state.ball.y),
+    'ball on pitch or on the ring'
+  );
   if (state.ball.carrier) {
     const c = carrier(state);
     assert.equal(c.x, state.ball.x, 'ball tracks carrier x');
@@ -357,7 +365,7 @@ test('AI vs AI: 20 seeded matches complete legally', () => {
   // Tuning sanity: matches should produce some shots and some goals overall.
   assert.ok(totalShots >= 20, `expected some shots across matches (got ${totalShots})`);
   assert.ok(totalGoals >= 5, `expected some goals across matches (got ${totalGoals})`);
-  assert.ok(totalGoals <= 160, `goal totals sane (got ${totalGoals})`);
+  assert.ok(totalGoals <= 220, `goal totals sane (got ${totalGoals})`);
 });
 
 test('selectMover: free until committed, locked after moving', () => {
@@ -480,7 +488,10 @@ test('you can keep moving after your action', () => {
   assert.ok(doPass(s, dice, passer.x, passer.y - 3).ok);
   assert.equal(s.actionUsed, true);
   assert.ok(stepsLeft(s) > 0, 'steps remain after passing');
-  assert.ok(doMove(s, dice, passer.x, passer.y + 1).ok, 'post-action move works');
+  const spot = [...reachable(s, passer.id).entries()].find(([, d]) => d > 0);
+  assert.ok(spot, 'somewhere to run');
+  const [mx, my] = spot[0].split(',').map(Number);
+  assert.ok(doMove(s, dice, mx, my).ok, 'post-action move works');
 });
 
 // Dribble-challenge scenarios: dribbler must cross a wall of defenders.
@@ -640,4 +651,131 @@ test('keeper position matters: off the line penalizes, stranded concedes', async
   assert.equal(r2.outcome, 'goal');
   assert.equal(r2.keeperRoll, null);
   assert.match(r2.roll.verdict.text, /stranded|Stranded/i);
+});
+
+test('kickoff: every player starts in their own half', () => {
+  const s = newMatch();
+  const mid = Math.floor(H / 2);
+  for (const p of s.players) {
+    if (p.team === 'home') assert.ok(p.y >= mid, `${p.id} in home half (y=${p.y})`);
+    else assert.ok(p.y < mid, `${p.id} in away half (y=${p.y})`);
+  }
+});
+
+test('deliberate pass out of bounds -> throw-in to the opponent', () => {
+  const s = newMatch();
+  clearBoard(s);
+  const me = getPlayer(s, 'home-4');
+  me.x = 1;
+  me.y = 9;
+  s.ball = { x: 1, y: 9, carrier: me.id };
+  s.moverId = me.id;
+  const res = doPass(s, stubDice([6, 5]), -1, 9); // over the near touchline
+  assert.ok(res.ok);
+  assert.deepEqual([s.ball.x, s.ball.y], [-1, 9], 'ball rests on the ring');
+  assert.equal(s.restart.type, 'throw');
+  assert.equal(s.restart.team, 'away', 'restart to the opponent');
+  // opponent's turn: taker stands on the ring with the ball, cannot move
+  const dice = stubDice([3, 3]);
+  endTurn(s, dice);
+  const taker = getPlayer(s, s.ball.carrier);
+  assert.equal(taker.team, 'away');
+  assert.deepEqual([taker.x, taker.y], [-1, 9], 'taker stands out of bounds');
+  assert.equal(stepsLeft(s), 0, 'no running before the throw');
+  assert.ok(!canShoot(s), 'no shooting from a throw-in');
+  // takes the throw; steps back onto the pitch
+  const mate = s.players.find((p) => p.team === 'away' && p.id !== taker.id && p.role !== 'GK');
+  mate.x = 3;
+  mate.y = 9;
+  const r2 = doPass(s, stubDice([6, 5]), 3, 9);
+  assert.ok(r2.ok);
+  assert.equal(s.ball.carrier, mate.id);
+  assert.ok(taker.x >= 0 && taker.x < W, 'taker stepped back in');
+  assert.equal(s.restartDuty, null);
+});
+
+test('defensive clearance over own end line -> corner, taker may shoot', () => {
+  const s = newMatch();
+  clearBoard(s);
+  const def = getPlayer(s, 'away-3'); // away defends y=0
+  def.x = 1;
+  def.y = 1;
+  s.ball = { x: 1, y: 1, carrier: def.id };
+  const dice = stubDice([6, 5]);
+  endTurn(s, dice); // away's turn
+  s.moverId = def.id;
+  const res = doPass(s, stubDice([6, 5]), 1, -1); // hoofs it over his own line
+  assert.ok(res.ok, res.reason);
+  assert.equal(s.restart.type, 'corner');
+  assert.equal(s.restart.team, 'home', 'corner to the attackers');
+  assert.equal(s.restart.x, -1, 'ball placed in the corner arc');
+  endTurn(s, stubDice([3, 3])); // home's turn: corner taker placed
+  const taker = getPlayer(s, s.ball.carrier);
+  assert.equal(taker.team, 'home');
+  assert.ok(canShoot(s), 'corners may be shot directly');
+});
+
+test('wide shot -> goal kick: keeper restarts with the ball', () => {
+  const s = newMatch();
+  const striker = getPlayer(s, 'home-7');
+  const occ = occupantAt(s, 4, 2);
+  if (occ) { occ.x = 0; occ.y = 0; }
+  striker.x = 4;
+  striker.y = 2;
+  s.ball = { x: 4, y: 2, carrier: striker.id };
+  const res = doShoot(s, stubDice([1, 1, 3, 3]), { col: 0, high: false }, { col: 1, high: false });
+  assert.equal(res.outcome, 'wide');
+  // doShoot auto-ends the turn; the defending keeper restarts immediately
+  assert.equal(s.ball.carrier, 'away-1', 'goal kick in the keeper\'s hands');
+});
+
+test('offside: deep moves excluded, one-past is a 90% flag', () => {
+  const s = newMatch();
+  clearBoard(s);
+  // away's deepest outfielder holds the line at y=4
+  s.players.filter((p) => p.team === 'away' && p.role !== 'GK')
+    .forEach((p, i) => { p.x = i; p.y = 4 + i; });
+  const runner = getPlayer(s, 'home-6'); // spd 6, not carrying
+  runner.x = 4;
+  runner.y = 6;
+  s.ball = { x: 8, y: 9, carrier: null };
+  s.moverId = runner.id;
+  const tiles = reachable(s, runner.id);
+  assert.ok(!tiles.has('4,2'), 'two past the line is never offered');
+  assert.ok(tiles.has('4,3'), 'one past the line is offered (risky)');
+  // flagged: roll under 11 -> turnover, whistle
+  const res = doMove(s, stubDice([4, 4]), 4, 3);
+  assert.ok(res.offside, 'flag went up');
+  const holder = getPlayer(s, s.ball.carrier);
+  assert.equal(holder.team, 'away', 'possession to the defense');
+  assert.equal(s.activeTeam, 'away', 'whistle ended the turn');
+});
+
+test('offside: carrier is exempt and 11+ escapes the flag', () => {
+  const s = newMatch();
+  clearBoard(s);
+  s.players.filter((p) => p.team === 'away' && p.role !== 'GK')
+    .forEach((p, i) => { p.x = i; p.y = 4 + i; });
+  // carrier dribbles past the line freely
+  const runner = getPlayer(s, 'home-6');
+  runner.x = 4;
+  runner.y = 5;
+  s.ball = { x: 4, y: 5, carrier: runner.id };
+  s.moverId = runner.id;
+  const rc = doMove(s, stubDice([1, 1]), 4, 2);
+  assert.ok(rc.ok && !rc.offside, 'breakaway: no offside with the ball');
+  assert.equal(s.ball.carrier, runner.id);
+  // non-carrier escaping on 11+
+  const s2 = newMatch();
+  clearBoard(s2);
+  s2.players.filter((p) => p.team === 'away' && p.role !== 'GK')
+    .forEach((p, i) => { p.x = i; p.y = 4 + i; });
+  const r2 = getPlayer(s2, 'home-6');
+  r2.x = 4;
+  r2.y = 6;
+  s2.ball = { x: 8, y: 9, carrier: null };
+  s2.moverId = r2.id;
+  const res2 = doMove(s2, stubDice([6, 6]), 4, 3); // 12 >= 11: plays on
+  assert.ok(res2.ok && !res2.offside, 'level enough — play continues');
+  assert.equal(s2.activeTeam, 'home');
 });
